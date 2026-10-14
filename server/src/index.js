@@ -85,6 +85,8 @@ export async function handleRequest(request) {
       const data = await invokeTool(params.name, params.arguments || {});
       const text = params.name === "render_catalog_explorer"
         ? `Catalog Explorer is ready with ${data.entries.length} read-only candidate record(s). Select a candidate and optionally submit a comment to chat.`
+        : params.name === "submit_catalog_selection"
+          ? `Accepted Catalog Explorer selection: ${data.selection.id}. Continue the guided plan from this choice; it is not approval for file changes or commands.`
         : undefined;
       return response(id, toolResult(data, false, text));
     } catch (error) {

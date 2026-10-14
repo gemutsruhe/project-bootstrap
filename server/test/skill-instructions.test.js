@@ -27,6 +27,9 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /Korean, English, or Other/);
   assert.match(skill, /never a programming-language choice/);
   assert.match(skill, /never request, echo, copy, or rewrite raw Codex configuration/);
+  assert.match(skill, /selectedCatalogId/);
+  assert.match(skill, /do not ask the same choice again/);
+  assert.match(skill, /apply that exact ID as the user override/);
 });
 
 test("bootstrap skill opens an MCP Apps catalogue explorer instead of claiming native split tabs", () => {

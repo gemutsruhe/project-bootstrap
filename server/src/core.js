@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PLUGIN_VERSION = "0.2.3";
-export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v1.html";
+export const PLUGIN_VERSION = "0.2.4";
+export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v2.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const IGNORED_DIRECTORIES = new Set([
@@ -66,6 +66,27 @@ const TOOL_DEFINITIONS = [
       "openai/outputTemplate": CATALOG_EXPLORER_RESOURCE_URI,
       "openai/toolInvocation/invoking": "Opening Catalog Explorer…",
       "openai/toolInvocation/invoked": "Catalog Explorer ready."
+    }
+  },
+  {
+    name: "submit_catalog_selection",
+    description: "Validate a Catalog Explorer choice and return structured planning input for the next interview step. This tool records no durable state, writes no files, and never approves commands.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        candidateIds: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" }, description: "Exactly the candidate IDs shown in the Explorer." },
+        selectedId: { type: "string", description: "The candidate ID chosen by the user." },
+        comment: { type: "string", maxLength: 2000, default: "" },
+        locale: { type: "string", enum: ["en", "ko"], default: "en" }
+      },
+      required: ["candidateIds", "selectedId"],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true },
+    _meta: {
+      ui: { visibility: ["model", "app"] },
+      "openai/toolInvocation/invoking": "Applying catalog selection…",
+      "openai/toolInvocation/invoked": "Catalog selection ready."
     }
   },
   {
@@ -295,6 +316,40 @@ export function createCatalogExplorer(entries, { candidateIds, locale = "en", ti
     guidance: locale === "ko"
       ? "후보를 비교한 뒤 선택과 의견을 채팅에 제출하세요. 이는 파일 변경이나 명령 실행 승인과는 별개입니다."
       : "Compare candidates, then submit a selection and comment to chat. This is separate from approval for file changes or command execution."
+  };
+}
+
+export function submitCatalogSelection(entries, { candidateIds, selectedId, comment = "", locale = "en" } = {}) {
+  const byId = new Map(entries.map((entry) => [entry.attributes.id, entry]));
+  const shownIds = [...new Set(asList(candidateIds))];
+  if (!shownIds.length) throw new Error("candidateIds must include at least one catalogue ID.");
+  if (!shownIds.includes(selectedId)) throw new Error("selectedId must be one of the candidateIds shown in the Catalog Explorer.");
+
+  const selected = byId.get(selectedId);
+  if (!selected) throw new Error(`Unknown catalogue ID: ${selectedId}`);
+  const normalizedComment = typeof comment === "string" ? comment.trim() : "";
+  if (normalizedComment.length > 2000) throw new Error("comment must be 2000 characters or fewer.");
+
+  return {
+    status: "accepted",
+    source: "project-bootstrap.catalog-explorer",
+    locale,
+    candidateIds: shownIds,
+    selection: {
+      id: selectedId,
+      kind: selected.attributes.kind,
+      label: entryLabel(selected, locale),
+      comment: normalizedComment,
+      suggestedIds: asList(selected.attributes.suggests)
+    },
+    continuation: {
+      replaceOnlyCurrentDecision: true,
+      message: "Treat this as the user's answer for the current catalogue decision. Keep earlier choices from other decisions, do not ask this choice again, then validate the accumulated selection or present the next relevant candidates."
+    },
+    safeguards: [
+      "This is planning input only; it does not write files or run commands.",
+      "This tool stores no selection outside the current conversation context."
+    ]
   };
 }
 
@@ -778,6 +833,7 @@ export async function invokeTool(name, args = {}) {
     case "inspect_workspace": return inspectWorkspace(args);
     case "list_catalog": return listCatalog(catalog, args);
     case "render_catalog_explorer": return createCatalogExplorer(catalog, args);
+    case "submit_catalog_selection": return submitCatalogSelection(catalog, args);
     case "recommend": return recommend(catalog, args);
     case "validate_selection": return validateSelection(catalog, args);
     case "create_plan": return createPlan(catalog, args);

@@ -13,6 +13,7 @@ import {
   loadCatalog,
   parseFrontmatter,
   recommend,
+  submitCatalogSelection,
   validateSelection
 } from "../src/core.js";
 
@@ -44,6 +45,25 @@ test("catalog explorer includes localized candidate metadata and the packaged Ma
   assert.match(explorer.entries[0].label, /웹/);
   assert.match(explorer.entries[0].markdown, /^---\n/);
   assert.match(explorer.entries[0].markdown, /title_ko:/);
+});
+
+test("catalog explorer selection becomes validated planning input for the selected decision", () => {
+  const selection = submitCatalogSelection(catalog, {
+    candidateIds: ["profile.web-fullstack", "profile.mobile-app"],
+    selectedId: "profile.mobile-app",
+    comment: "Mobile-first launch",
+    locale: "ko"
+  });
+  assert.equal(selection.status, "accepted");
+  assert.equal(selection.selection.id, "profile.mobile-app");
+  assert.equal(selection.selection.kind, "profile");
+  assert.equal(selection.selection.comment, "Mobile-first launch");
+  assert.equal(selection.continuation.replaceOnlyCurrentDecision, true);
+  assert.ok(selection.selection.suggestedIds.includes("language.flutter"));
+  assert.throws(
+    () => submitCatalogSelection(catalog, { candidateIds: ["profile.web-fullstack"], selectedId: "profile.mobile-app" }),
+    /one of the candidateIds/
+  );
 });
 
 test("each supported starting profile produces a non-writing review plan", () => {
