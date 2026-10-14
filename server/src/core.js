@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PLUGIN_VERSION = "0.1.1";
+export const PLUGIN_VERSION = "0.1.2";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const IGNORED_DIRECTORIES = new Set([
@@ -34,7 +34,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "list_catalog",
-    description: "List Markdown catalogue entries and localized labels packaged with the plugin.",
+    description: "List Markdown catalogue entries and localized labels packaged with the plugin. Each entry includes localPath for optional split-tab review in Codex Desktop.",
     inputSchema: {
       type: "object",
       properties: {
@@ -239,7 +239,8 @@ export function listCatalog(entries, { kind, tag, locale = "en" } = {}) {
       summary: entrySummary(entry, locale),
       tags: asList(entry.attributes.tags),
       languages: asList(entry.attributes.languages),
-      path: entry.relativePath
+      path: entry.relativePath,
+      localPath: entry.file
     }));
 }
 

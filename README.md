@@ -28,7 +28,7 @@ Install **Project Bootstrap** from the marketplace in Codex Desktop, then start 
 
 ## Guided planning
 
-In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. Select an option or use **Other** to leave a comment; neither action authorizes any file change. On hosts without structured Plan questions, the same interview is presented as numbered choices with a free-text `Other` response.
+In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. Select an option or use **Other** to leave a comment; neither action authorizes any file change. For catalogue-backed candidates, it opens up to three source Markdown records in the right-hand split tabs for review. On hosts without structured Plan questions or split tabs, the same interview is presented as numbered choices with a free-text `Other` response and catalogue paths in the response.
 
 ## Development
 

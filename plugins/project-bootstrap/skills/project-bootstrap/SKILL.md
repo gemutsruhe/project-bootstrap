@@ -15,15 +15,19 @@ Use the bundled `project-bootstrap` MCP server to keep selection, validation, an
    - Treat the host's `Other`/comment response as a first-class answer. Explicitly invite a comment whenever the listed choices do not fit; do not force a listed choice.
    - When a structured control is unavailable, present the same one-decision question as a numbered Markdown list ending in `Other — describe your situation`. Wait for the answer before the next decision.
    - A choice, comment, or profile confirmation only guides planning. It is never approval to write files or run commands.
-3. Ask only the next decision needed, skipping facts already supplied or found in the inventory. Use this order unless the user's answer makes another question more relevant:
+3. Before asking the user to choose between catalogue-backed candidates, make those candidate records inspectable.
+   - Call `list_catalog` with the relevant kind and locale. Use each returned `localPath` only for viewing the packaged Markdown record; it is not a target-project path.
+   - In Codex Desktop, when the host can open files in a split tab, open the Markdown record for every currently shown candidate, up to three files, in the right-hand split pane. Keep the recommended candidate focused. Do not create a comparison file or modify any catalogue file.
+   - Do not reopen a catalogue record already open in the current conversation unless the user asks to refresh it. If the host cannot open the local path, retain the `path` in the written response and continue without a tab.
+4. Ask only the next decision needed, skipping facts already supplied or found in the inventory. Use this order unless the user's answer makes another question more relevant:
    1. Product or service goal and starting profile.
    2. Team size and existing or preferred language/framework constraints.
    3. Expected traffic and operations preference.
    4. Budget sensitivity and regulatory or security requirements.
    5. Display locale.
-4. Call `list_catalog` and `recommend` after enough context is available. Present the ranked, explainable starting profiles in another structured choice (or the text fallback) and let the user select or comment with an override. A profile may be overridden one decision at a time; never silently select a technology.
-5. Call `validate_selection`. Explain every warning or block with the referenced catalogue IDs and alternatives. If a choice is blocked, ask a replacement question; do not create an implementation plan while blocked rules remain unresolved.
-6. Call `create_plan` only after the user explicitly confirms the selection. Present the validation summary, proposed paths, conflict list, generated records, and command list.
+5. Call `list_catalog` and `recommend` after enough context is available. Present the ranked, explainable starting profiles in another structured choice (or the text fallback) and let the user select or comment with an override. A profile may be overridden one decision at a time; never silently select a technology.
+6. Call `validate_selection`. Explain every warning or block with the referenced catalogue IDs and alternatives. If a choice is blocked, ask a replacement question; do not create an implementation plan while blocked rules remain unresolved.
+7. Call `create_plan` only after the user explicitly confirms the selection. Present the validation summary, proposed paths, conflict list, generated records, and command list.
 
 ## Approval gate
 

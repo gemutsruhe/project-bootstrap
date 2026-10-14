@@ -25,6 +25,7 @@ test("catalogue has the five required profiles and Korean fallback data", () => 
   const profiles = listCatalog(catalog, { kind: "profile", locale: "ko" });
   assert.equal(profiles.length, 5);
   assert.ok(profiles.some((profile) => profile.id === "profile.web-fullstack" && /웹/.test(profile.label)));
+  assert.ok(profiles.every((profile) => path.isAbsolute(profile.localPath) && profile.localPath.endsWith(".md")));
   assert.ok(catalog.length >= 30);
 });
 
