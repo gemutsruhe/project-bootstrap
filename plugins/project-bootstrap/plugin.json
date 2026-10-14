@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "project-bootstrap",
-  "version": "0.2.4",
-  "description": "Plan and validate local project bootstrap decisions before creating configuration artifacts.",
+  "version": "0.2.5",
+  "description": "Plan, validate, and generate approved local project bootstrap artifacts.",
   "keywords": [
     "architecture",
     "bootstrap",
@@ -16,8 +16,8 @@
       "onboardingSkill": "./skills/setup/SKILL.md",
       "interface": {
         "displayName": "Project Bootstrap",
-        "shortDescription": "Validate and plan local project setup.",
-        "longDescription": "Select architecture and platform choices, validate their compatibility, and prepare an approval-gated local bootstrap plan.",
+        "shortDescription": "Plan and generate local project setup.",
+        "longDescription": "Select architecture and platform choices, validate their compatibility, then generate approved local bootstrap artifacts.",
         "developerName": "Project Bootstrap Contributors",
         "category": "Developer tools",
         "capabilities": [
@@ -25,7 +25,7 @@
           "Write"
         ],
         "defaultPrompt": [
-          "Use Project Bootstrap to inspect this local workspace and propose a validated setup plan.",
+          "Use Project Bootstrap to inspect this local workspace, propose a validated setup plan, and generate the approved bootstrap artifacts.",
           "Use Project Bootstrap to compare architecture options without modifying files."
         ]
       }

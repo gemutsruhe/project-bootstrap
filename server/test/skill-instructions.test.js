@@ -30,6 +30,10 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /selectedCatalogId/);
   assert.match(skill, /do not ask the same choice again/);
   assert.match(skill, /apply that exact ID as the user override/);
+  assert.match(skill, /execute the approved file generation in the same turn/);
+  assert.match(skill, /Do not stop at a hypothetical scaffold/);
+  assert.match(skill, /write the real, non-empty file at the exact planned path/);
+  assert.match(skill, /Do not claim a file was generated unless it exists in the workspace/);
 });
 
 test("bootstrap skill opens an MCP Apps catalogue explorer instead of claiming native split tabs", () => {

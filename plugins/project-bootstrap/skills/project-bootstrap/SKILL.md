@@ -1,11 +1,11 @@
 ---
 name: project-bootstrap
-description: Inspect a local project, recommend and validate its architecture and platform setup, then prepare an approval-gated bootstrap plan. Use for new or existing projects; do not use for unreviewed file changes.
+description: Inspect a local project, recommend and validate its architecture and platform setup, then generate approved bootstrap artifacts. Use for new or existing projects; require explicit approval before file changes.
 ---
 
 # Project Bootstrap
 
-Use the bundled `project-bootstrap` MCP server to keep selection, validation, and planning deterministic. Its tools are read-only. Treat its output as a proposal, not as authorization to write files or run commands.
+Use the bundled `project-bootstrap` MCP server to keep selection, validation, and planning deterministic. Its tools are read-only. Treat its output as a proposal until the user approves the exact file plan; after that approval, this Skill creates the approved local bootstrap artifacts itself.
 
 ## Guided interview and selection
 
@@ -33,13 +33,22 @@ Use the bundled `project-bootstrap` MCP server to keep selection, validation, an
    5. Do not ask for the display locale again; it was decided as the first question-and-answer language step.
 5. Call `list_catalog` and `recommend` after enough context is available. Render the ranked, explainable starting profiles in the Catalog Explorer before presenting the structured choice (or text fallback), and let the user select or comment with an override. When an explorer selection arrives, apply that exact ID as the user override for its current decision before progressing to another question; do not rerank it away or replace it silently. A profile may be overridden one decision at a time; never silently select a technology.
 6. Call `validate_selection`. Explain every warning or block with the referenced catalogue IDs and alternatives. If a choice is blocked, ask a replacement question; do not create an implementation plan while blocked rules remain unresolved.
-7. Call `create_plan` only after the user explicitly confirms the selection. Present the validation summary, proposed paths, conflict list, generated records, and command list.
+7. Call `create_plan` only after the user explicitly confirms the selection. Present the validation summary, proposed paths, conflict list, generated records, and command list. Ask for approval of that exact file plan before any write.
 
 ## Approval gate
 
 Do not create, edit, delete, rename, stage, commit, push, or open a pull request until the user explicitly approves the presented file plan.
 
-After file-plan approval, write only the planned non-conflicting local artifacts. Record the selected catalogue version and decisions in:
+After the user approves the exact file plan, execute the approved file generation in the same turn. Do not stop at a hypothetical scaffold, a code block, or a list of proposed files.
+
+1. Recheck the final validation result. If it contains a `block`, do not write; resolve it with the user first.
+2. Read [`templates/README.md`](../../templates/README.md) and the mapped template for every approved artifact. Render the template with the reviewed project name, locale, selected IDs, catalogue version, validation result, and execution plan. Never invent unreviewed technology choices while rendering.
+3. For every approved artifact whose operation is `create`, create its parent directories and write the real, non-empty file at the exact planned path. Use the workspace file-editing capability (for example, `apply_patch`); do not defer the creation to the user or merely describe the content.
+4. Write the selected catalogue version and decisions to `.project-bootstrap/selection.yaml`, then create the decision record, validation report, architecture overview, and execution plan from the reviewed results. Create the approved adapter configuration and interface-contract files as well.
+5. Do not create any artifact marked `conflict`. Before every overwrite of an existing non-identical file, stop and request a path-specific overwrite decision. Never delete files or perform an automatic migration.
+6. After writing, inspect the resulting paths and report exactly which files were created, which were skipped as conflicts, and which commands remain pending. Do not claim a file was generated unless it exists in the workspace.
+
+Write only the planned non-conflicting local artifacts. Record the selected catalogue version and decisions in:
 
 - `.project-bootstrap/selection.yaml`
 - `docs/project-bootstrap/decision-record.md`
@@ -47,7 +56,7 @@ After file-plan approval, write only the planned non-conflicting local artifacts
 - `docs/architecture/overview.md`
 - `docs/project-bootstrap/execution-plan.md`
 
-Create `.codex/config.toml`, `AGENTS.md`, container files, and CI files only when they are in the approved plan. If a planned path already exists and differs from the generated content, stop and ask for a path-specific overwrite decision. Never delete files or perform automatic migrations.
+Create `.codex/config.toml`, `AGENTS.md`, container files, and CI files only when they are in the approved plan. Their creation is part of the approved file-generation step, not a later optional suggestion. If a planned path already exists and differs from the generated content, stop and ask for a path-specific overwrite decision. Never delete files or perform automatic migrations.
 
 ## Commands and upgrades
 

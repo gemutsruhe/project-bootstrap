@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PLUGIN_VERSION = "0.2.4";
+export const PLUGIN_VERSION = "0.2.5";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v2.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
