@@ -3,6 +3,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   checkUpdates,
+  createCatalogExplorer,
   createPlan,
   inspectWorkspace,
   listCatalog,
@@ -25,8 +26,21 @@ test("catalogue has the five required profiles and Korean fallback data", () => 
   const profiles = listCatalog(catalog, { kind: "profile", locale: "ko" });
   assert.equal(profiles.length, 5);
   assert.ok(profiles.some((profile) => profile.id === "profile.web-fullstack" && /웹/.test(profile.label)));
-  assert.ok(profiles.every((profile) => path.isAbsolute(profile.localPath) && profile.localPath.endsWith(".md")));
+  assert.ok(profiles.every((profile) => profile.path.endsWith(".md")));
   assert.ok(catalog.length >= 30);
+});
+
+test("catalog explorer includes localized candidate metadata and the packaged Markdown source", () => {
+  const explorer = createCatalogExplorer(catalog, {
+    candidateIds: ["profile.web-fullstack", "profile.api-service"],
+    locale: "ko",
+    title: "시작 프로필 비교"
+  });
+  assert.equal(explorer.title, "시작 프로필 비교");
+  assert.equal(explorer.entries.length, 2);
+  assert.match(explorer.entries[0].label, /웹/);
+  assert.match(explorer.entries[0].markdown, /^---\n/);
+  assert.match(explorer.entries[0].markdown, /title_ko:/);
 });
 
 test("each supported starting profile produces a non-writing review plan", () => {

@@ -11,13 +11,48 @@ test("MCP initialize exposes a tool-capable local server", async () => {
     params: { protocolVersion: "2025-03-26" }
   });
   assert.equal(result.result.serverInfo.name, "project-bootstrap");
-  assert.deepEqual(result.result.capabilities, { tools: {} });
+  assert.deepEqual(result.result.capabilities, { tools: {}, resources: {} });
 });
 
-test("MCP lists read-only planning tools", async () => {
+test("MCP lists read-only planning tools and the Catalog Explorer UI tool", async () => {
   const result = await handleRequest({ jsonrpc: "2.0", id: 2, method: "tools/list" });
   const names = result.result.tools.map((tool) => tool.name);
-  assert.deepEqual(names, ["inspect_workspace", "list_catalog", "recommend", "validate_selection", "create_plan", "check_updates"]);
+  assert.deepEqual(names, ["inspect_workspace", "list_catalog", "render_catalog_explorer", "recommend", "validate_selection", "create_plan", "check_updates"]);
+  const explorer = result.result.tools.find((tool) => tool.name === "render_catalog_explorer");
+  assert.equal(explorer._meta.ui.resourceUri, "ui://project-bootstrap/catalog-explorer-v1.html");
+  assert.equal(explorer.annotations.readOnlyHint, true);
+});
+
+test("MCP exposes the Catalog Explorer as a local MCP Apps resource", async () => {
+  const listed = await handleRequest({ jsonrpc: "2.0", id: 21, method: "resources/list" });
+  assert.equal(listed.result.resources.length, 1);
+  assert.equal(listed.result.resources[0].mimeType, "text/html;profile=mcp-app");
+
+  const read = await handleRequest({
+    jsonrpc: "2.0",
+    id: 22,
+    method: "resources/read",
+    params: { uri: "ui://project-bootstrap/catalog-explorer-v1.html" }
+  });
+  const resource = read.result.contents[0];
+  assert.equal(resource._meta.ui.prefersBorder, true);
+  assert.match(resource.text, /ui\/initialize/);
+  assert.match(resource.text, /ui\/update-model-context/);
+  assert.match(resource.text, /ui\/message/);
+});
+
+test("Catalog Explorer output is read-only structured data", async () => {
+  const result = await handleRequest({
+    jsonrpc: "2.0",
+    id: 23,
+    method: "tools/call",
+    params: { name: "render_catalog_explorer", arguments: { candidateIds: ["profile.web-fullstack"], locale: "ko" } }
+  });
+  assert.equal(result.result.isError, false);
+  assert.equal(result.result.structuredContent.entries[0].id, "profile.web-fullstack");
+  assert.match(result.result.structuredContent.entries[0].markdown, /^---\n/);
+  assert.match(result.result.content[0].text, /Catalog Explorer is ready/);
+  assert.doesNotMatch(result.result.content[0].text, /title_ko:/);
 });
 
 test("MCP tool errors remain structured and cannot write files", async () => {

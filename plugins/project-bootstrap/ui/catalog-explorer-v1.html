@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Bootstrap Catalog Explorer</title>
+    <style>
+      :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --surface: color-mix(in srgb, Canvas 96%, CanvasText 4%); --surface-raised: color-mix(in srgb, Canvas 92%, CanvasText 8%); --border: color-mix(in srgb, CanvasText 20%, transparent); --muted: color-mix(in srgb, CanvasText 65%, transparent); --accent: #2563eb; --accent-soft: color-mix(in srgb, #2563eb 16%, Canvas); }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--surface); color: CanvasText; }
+      button, textarea { font: inherit; }
+      button { cursor: pointer; }
+      main { padding: 16px; max-width: 1120px; margin: 0 auto; }
+      h1 { font-size: 18px; margin: 0; }
+      h2 { font-size: 14px; margin: 0 0 8px; }
+      .header { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+      .guidance, .status { font-size: 13px; line-height: 1.45; color: var(--muted); margin: 6px 0 0; }
+      .status { text-align: right; max-width: 360px; }
+      .compare { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(300px, 1.2fr); gap: 12px; }
+      .candidates, .detail, .selection { border: 1px solid var(--border); background: var(--surface-raised); border-radius: 10px; }
+      .candidates { padding: 8px; display: grid; align-content: start; gap: 7px; max-height: 590px; overflow: auto; }
+      .candidate { width: 100%; border: 1px solid transparent; border-radius: 8px; background: transparent; color: inherit; padding: 10px; text-align: left; }
+      .candidate:hover, .candidate:focus-visible { border-color: var(--accent); outline: none; }
+      .candidate[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+      .candidate-title { display: block; font-size: 14px; font-weight: 650; }
+      .candidate-summary { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+      .detail { min-width: 0; padding: 14px; }
+      .metadata { display: flex; gap: 6px; flex-wrap: wrap; margin: 9px 0 12px; }
+      .badge { border: 1px solid var(--border); border-radius: 999px; padding: 3px 7px; font-size: 11px; color: var(--muted); }
+      .path { color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; margin: 0 0 12px; overflow-wrap: anywhere; }
+      pre { margin: 0; padding: 12px; overflow: auto; max-height: 410px; border-radius: 8px; border: 1px solid var(--border); background: color-mix(in srgb, Canvas 85%, CanvasText 15%); font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .selection { margin-top: 12px; padding: 12px; }
+      label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+      textarea { display: block; width: 100%; min-height: 76px; resize: vertical; color: inherit; background: Canvas; border: 1px solid var(--border); border-radius: 7px; padding: 8px; }
+      .actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+      .actions small { color: var(--muted); line-height: 1.35; }
+      .submit { border: 0; border-radius: 7px; background: var(--accent); color: white; padding: 8px 11px; font-weight: 650; white-space: nowrap; }
+      .submit:disabled { cursor: not-allowed; opacity: .55; }
+      .empty { color: var(--muted); padding: 16px 4px; }
+      @media (max-width: 720px) { main { padding: 12px; } .header, .actions { align-items: flex-start; flex-direction: column; } .status { text-align: left; } .compare { grid-template-columns: 1fr; } .candidates { max-height: 280px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="header">
+        <div><h1 id="title">Catalog Explorer</h1><p class="guidance" id="guidance">Loading catalogue candidates…</p></div>
+        <p class="status" id="status" aria-live="polite">Connecting to the host…</p>
+      </div>
+      <section class="compare" aria-label="Catalog candidate comparison">
+        <div class="candidates" id="candidates" role="listbox" aria-label="Candidates"></div>
+        <article class="detail" aria-live="polite"><h2 id="detail-title">Select a candidate</h2><div class="metadata" id="metadata"></div><p class="path" id="path"></p><pre id="markdown"></pre></article>
+      </section>
+      <section class="selection" aria-label="Selection and comment">
+        <label for="comment" id="comment-label">Comment (optional)</label><textarea id="comment" placeholder="Explain your preference, constraint, or an alternative."></textarea>
+        <div class="actions"><small id="approval-note">Submitting this choice only guides the plan. It does not approve file changes or commands.</small><button class="submit" id="submit" type="button" disabled>Submit selection to chat</button></div>
+      </section>
+    </main>
+    <script>
+      (() => {
+        const APP_VERSION = "0.2.0";
+        const APP_PROTOCOL_VERSION = "2026-01-26";
+        const pending = new Map();
+        let nextRequestId = 1;
+        let explorer;
+        let selectedId;
+        let hostCapabilities = {};
+        const elements = {
+          title: document.getElementById("title"), guidance: document.getElementById("guidance"), status: document.getElementById("status"), candidates: document.getElementById("candidates"), detailTitle: document.getElementById("detail-title"), metadata: document.getElementById("metadata"), path: document.getElementById("path"), markdown: document.getElementById("markdown"), commentLabel: document.getElementById("comment-label"), comment: document.getElementById("comment"), approvalNote: document.getElementById("approval-note"), submit: document.getElementById("submit")
+        };
+        function korean() { return explorer?.locale === "ko" || document.documentElement.lang.startsWith("ko"); }
+        function strings() {
+          return korean() ? {
+            candidates: "후보", select: "후보를 선택하세요", comment: "의견 (선택 사항)", placeholder: "선호, 제약 사항 또는 다른 대안을 적으세요.", approval: "이 선택은 계획에만 반영됩니다. 파일 변경이나 명령 실행을 승인하지 않습니다.", submit: "선택을 채팅에 제출", submitting: "제출 중…", submitted: "선택이 채팅에 전달되었습니다.", hostUnavailable: "호스트 연결을 사용할 수 없습니다. 선택 내용을 채팅에 직접 입력하세요.", source: "카탈로그 탐색기 선택"
+          } : {
+            candidates: "Candidates", select: "Select a candidate", comment: "Comment (optional)", placeholder: "Explain your preference, constraint, or an alternative.", approval: "Submitting this choice only guides the plan. It does not approve file changes or commands.", submit: "Submit selection to chat", submitting: "Submitting…", submitted: "Your selection was sent to chat.", hostUnavailable: "Host connection is unavailable. Enter your selection in chat instead.", source: "Catalog Explorer selection"
+          };
+        }
+        function post(method, params, id) { window.parent.postMessage({ jsonrpc: "2.0", method, params, ...(id === undefined ? {} : { id }) }, "*"); }
+        function request(method, params) { const id = nextRequestId++; post(method, params, id); return new Promise((resolve, reject) => pending.set(id, { resolve, reject })); }
+        function notify(method, params) { post(method, params); }
+        function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+        function addBadge(text) { const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = text; elements.metadata.appendChild(badge); }
+        function renderDetail() {
+          const current = explorer?.entries?.find((entry) => entry.id === selectedId); const copy = strings(); clear(elements.metadata);
+          if (!current) { elements.detailTitle.textContent = copy.select; elements.path.textContent = ""; elements.markdown.textContent = ""; return; }
+          elements.detailTitle.textContent = current.label; addBadge(current.kind); for (const tag of current.tags || []) addBadge(tag); for (const language of current.languages || []) addBadge(language); elements.path.textContent = current.path || ""; elements.markdown.textContent = current.markdown || "";
+        }
+        function renderCandidates() {
+          const copy = strings(); clear(elements.candidates); elements.candidates.setAttribute("aria-label", copy.candidates);
+          if (!explorer?.entries?.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = copy.select; elements.candidates.appendChild(empty); return; }
+          for (const entry of explorer.entries) {
+            const button = document.createElement("button"); button.type = "button"; button.className = "candidate"; button.setAttribute("role", "option"); button.setAttribute("aria-pressed", String(entry.id === selectedId)); button.setAttribute("aria-selected", String(entry.id === selectedId));
+            const label = document.createElement("span"); label.className = "candidate-title"; label.textContent = entry.label;
+            const summary = document.createElement("span"); summary.className = "candidate-summary"; summary.textContent = entry.summary;
+            button.append(label, summary); button.addEventListener("click", () => { selectedId = entry.id; renderCandidates(); renderDetail(); elements.submit.disabled = false; }); elements.candidates.appendChild(button);
+          }
+        }
+        function render(data) {
+          if (!data || !Array.isArray(data.entries)) return; explorer = data; selectedId = data.entries.some((entry) => entry.id === selectedId) ? selectedId : data.entries[0]?.id;
+          const copy = strings(); elements.title.textContent = data.title || "Catalog Explorer"; elements.guidance.textContent = data.guidance || ""; elements.commentLabel.textContent = copy.comment; elements.comment.placeholder = copy.placeholder; elements.approvalNote.textContent = copy.approval; elements.submit.textContent = copy.submit; elements.submit.disabled = !selectedId; renderCandidates(); renderDetail(); elements.status.textContent = "";
+        }
+        async function submitSelection() {
+          const current = explorer?.entries?.find((entry) => entry.id === selectedId); if (!current) return;
+          const copy = strings(); const comment = elements.comment.value.trim(); const context = { source: "project-bootstrap.catalog-explorer", selectedCatalogId: current.id, selectedCatalogLabel: current.label, comment };
+          const message = `${copy.source}: ${current.id}${comment ? ` — ${comment}` : ""}. This is a planning choice only, not approval for file changes or commands.`;
+          elements.submit.disabled = true; elements.submit.textContent = copy.submitting;
+          try {
+            if (hostCapabilities.updateModelContext) await request("ui/update-model-context", { structuredContent: context, content: [{ type: "text", text: JSON.stringify(context) }] });
+            await request("ui/message", { role: "user", content: [{ type: "text", text: message }] }); elements.status.textContent = copy.submitted;
+          } catch (error) { elements.status.textContent = copy.hostUnavailable; }
+          finally { elements.submit.disabled = false; elements.submit.textContent = copy.submit; }
+        }
+        window.addEventListener("message", (event) => {
+          if (event.source !== window.parent) return; const message = event.data; if (!message || message.jsonrpc !== "2.0") return;
+          if (message.id !== undefined && pending.has(message.id)) { const requestState = pending.get(message.id); pending.delete(message.id); if (message.error) requestState.reject(message.error); else requestState.resolve(message.result); return; }
+          if (message.method === "ui/notifications/tool-result") render(message.params?.structuredContent || message.params);
+        }, { passive: true });
+        async function connect() {
+          try {
+            const initialized = await request("ui/initialize", { protocolVersion: APP_PROTOCOL_VERSION, appInfo: { name: "project-bootstrap-catalog-explorer", title: "Project Bootstrap Catalog Explorer", version: APP_VERSION }, appCapabilities: { availableDisplayModes: ["inline"] } });
+            hostCapabilities = initialized?.hostCapabilities || initialized?.capabilities || {}; notify("ui/notifications/initialized", {});
+          } catch (error) { elements.status.textContent = strings().hostUnavailable; }
+          render(window.openai?.toolOutput?.structuredContent || window.openai?.toolOutput);
+        }
+        elements.submit.addEventListener("click", submitSelection); connect();
+      })();
+    </script>
+  </body>
+</html>

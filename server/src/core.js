@@ -2,7 +2,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PLUGIN_VERSION = "0.1.2";
+export const PLUGIN_VERSION = "0.2.0";
+export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v1.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const IGNORED_DIRECTORIES = new Set([
@@ -34,7 +35,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "list_catalog",
-    description: "List Markdown catalogue entries and localized labels packaged with the plugin. Each entry includes localPath for optional split-tab review in Codex Desktop.",
+    description: "List Markdown catalogue entries and localized labels packaged with the plugin. Call render_catalog_explorer to inspect a selected candidate set in an interactive UI.",
     inputSchema: {
       type: "object",
       properties: {
@@ -43,6 +44,27 @@ const TOOL_DEFINITIONS = [
         locale: { type: "string", enum: ["en", "ko"], default: "en" }
       },
       additionalProperties: false
+    }
+  },
+  {
+    name: "render_catalog_explorer",
+    description: "Render selected Markdown catalogue candidates in the interactive Catalog Explorer. Call list_catalog or recommend first, then pass only the IDs currently being compared. This is read-only and a choice in the UI is never approval to write files or run commands.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        candidateIds: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" } },
+        locale: { type: "string", enum: ["en", "ko"], default: "en" },
+        title: { type: "string", maxLength: 120, description: "Optional context title for the comparison." }
+      },
+      required: ["candidateIds"],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true },
+    _meta: {
+      ui: { resourceUri: CATALOG_EXPLORER_RESOURCE_URI },
+      "openai/outputTemplate": CATALOG_EXPLORER_RESOURCE_URI,
+      "openai/toolInvocation/invoking": "Opening Catalog Explorer…",
+      "openai/toolInvocation/invoked": "Catalog Explorer ready."
     }
   },
   {
@@ -211,13 +233,15 @@ export async function loadCatalog() {
   const root = await resolveCatalogRoot();
   const entries = [];
   for (const file of await findMarkdownFiles(root)) {
-    const parsed = parseFrontmatter(await fs.readFile(file, "utf8"));
+    const markdown = await fs.readFile(file, "utf8");
+    const parsed = parseFrontmatter(markdown);
     if (!parsed.attributes.id || !parsed.attributes.kind) continue;
     entries.push({
       file,
       relativePath: path.relative(root, file).replaceAll(path.sep, "/"),
       attributes: parsed.attributes,
-      body: parsed.body
+      body: parsed.body,
+      markdown
     });
   }
 
@@ -239,9 +263,38 @@ export function listCatalog(entries, { kind, tag, locale = "en" } = {}) {
       summary: entrySummary(entry, locale),
       tags: asList(entry.attributes.tags),
       languages: asList(entry.attributes.languages),
-      path: entry.relativePath,
-      localPath: entry.file
+      path: entry.relativePath
     }));
+}
+
+export function createCatalogExplorer(entries, { candidateIds, locale = "en", title } = {}) {
+  const byId = new Map(entries.map((entry) => [entry.attributes.id, entry]));
+  const ids = [...new Set(asList(candidateIds))];
+  if (!ids.length) throw new Error("candidateIds must include at least one catalogue ID.");
+
+  const selected = ids.map((id) => {
+    const entry = byId.get(id);
+    if (!entry) throw new Error(`Unknown catalogue ID: ${id}`);
+    return {
+      id,
+      kind: entry.attributes.kind,
+      label: entryLabel(entry, locale),
+      summary: entrySummary(entry, locale),
+      tags: asList(entry.attributes.tags),
+      languages: asList(entry.attributes.languages),
+      path: entry.relativePath,
+      markdown: entry.markdown
+    };
+  });
+
+  return {
+    title: title || (locale === "ko" ? "카탈로그 후보 비교" : "Catalog candidate comparison"),
+    locale,
+    entries: selected,
+    guidance: locale === "ko"
+      ? "후보를 비교한 뒤 선택과 의견을 채팅에 제출하세요. 이는 파일 변경이나 명령 실행 승인과는 별개입니다."
+      : "Compare candidates, then submit a selection and comment to chat. This is separate from approval for file changes or command execution."
+  };
 }
 
 function isWithin(child, parent) {
@@ -606,6 +659,7 @@ export async function invokeTool(name, args = {}) {
   switch (name) {
     case "inspect_workspace": return inspectWorkspace(args);
     case "list_catalog": return listCatalog(catalog, args);
+    case "render_catalog_explorer": return createCatalogExplorer(catalog, args);
     case "recommend": return recommend(catalog, args);
     case "validate_selection": return validateSelection(catalog, args);
     case "create_plan": return createPlan(catalog, args);

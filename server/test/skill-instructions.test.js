@@ -19,3 +19,11 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /numbered Markdown list ending in `Other — describe your situation`/);
   assert.match(skill, /never approval to write files or run commands/);
 });
+
+test("bootstrap skill opens an MCP Apps catalogue explorer instead of claiming native split tabs", () => {
+  const skill = fs.readFileSync(skillPath, "utf8");
+
+  assert.match(skill, /render_catalog_explorer/);
+  assert.match(skill, /packaged source Markdown in the MCP Apps UI/);
+  assert.doesNotMatch(skill, /open files in a split tab/);
+});

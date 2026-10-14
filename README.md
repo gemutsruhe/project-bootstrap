@@ -9,7 +9,7 @@ It does not send source code to a central service, commit, push, open pull reque
 - A Markdown catalogue of architecture, runtime, data, delivery, security, and AI choices.
 - Five starting profiles: full-stack web, API/service, mobile, data/AI, and multi-service platform.
 - Deterministic compatibility checks with `pass`, `warning`, and `block` outcomes.
-- A local MCP server for inventory, catalogue queries, recommendation, validation, and planning.
+- A local MCP server for inventory, catalogue queries, recommendation, validation, planning, and a read-only Catalog Explorer UI.
 - A Codex Skill that keeps filesystem changes and command execution behind an explicit approval gate.
 
 The catalogue is English by default. A caller can request Korean display strings with `locale: "ko"`; stable IDs remain English.
@@ -28,7 +28,7 @@ Install **Project Bootstrap** from the marketplace in Codex Desktop, then start 
 
 ## Guided planning
 
-In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. Select an option or use **Other** to leave a comment; neither action authorizes any file change. For catalogue-backed candidates, it opens up to three source Markdown records in the right-hand split tabs for review. On hosts without structured Plan questions or split tabs, the same interview is presented as numbered choices with a free-text `Other` response and catalogue paths in the response.
+In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. Select an option or use **Other** to leave a comment; neither action authorizes any file change. For catalogue-backed candidates, the Catalog Explorer MCP UI displays the ranked candidate cards alongside their packaged source Markdown, and submits a selected ID and optional comment back to chat. It is an inline plugin view, not a host-native split tab. On hosts without structured Plan questions or MCP Apps UI, the same interview is presented as numbered choices with a free-text `Other` response and catalogue paths in the response.
 
 ## Development
 
