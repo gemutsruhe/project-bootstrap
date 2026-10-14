@@ -9,7 +9,7 @@ Use the bundled `project-bootstrap` MCP server to keep selection, validation, an
 
 ## Guided interview and selection
 
-1. Call `inspect_workspace` for the target workspace before asking for details that the inventory can determine. For an existing project, preserve detected runtimes, manifests, deployment configuration, and user-owned files unless the user explicitly asks to replace them.
+1. Call `inspect_workspace` for the target workspace before asking for details that the inventory can determine. For an existing project, preserve detected runtimes, manifests, deployment configuration, Codex settings, and user-owned files unless the user explicitly asks to replace them. The inventory returns only a redacted summary of Project Bootstrap preferences in applicable user and project Codex configs; never request, echo, copy, or rewrite raw Codex configuration.
 2. Collect unknown decisions as a short, progressive interview. Never present the full questionnaire at once.
    - When the host exposes a structured question control in Plan mode, use it for one decision at a time. Provide two or three mutually exclusive choices, put the recommended choice first, and state each choice's consequence concisely.
    - Treat the host's `Other`/comment response as a first-class answer. Explicitly invite a comment whenever the listed choices do not fit; do not force a listed choice.
@@ -21,11 +21,15 @@ Use the bundled `project-bootstrap` MCP server to keep selection, validation, an
    - Let the user use the explorer's selection and optional comment control. A submitted explorer selection appears in the chat as planning input. It is never approval to write files or run commands.
    - If the host does not render MCP Apps UI, retain each candidate's `path`, summary, and ID in the written response, then use the normal structured-question or Markdown-choice fallback.
 4. Ask only the next decision needed, skipping facts already supplied or found in the inventory. Use this order unless the user's answer makes another question more relevant:
-   1. Product or service goal and starting profile.
-   2. Team size and existing or preferred language/framework constraints.
-   3. Expected traffic and operations preference.
+   1. Existing language and Codex defaults. Read `inventory.languageDecision` after inspection.
+      - When its action is `preserve-detected`, record every detected language as fixed planning input. Do not ask the user to choose or replace a language. A `configuredLanguageId` is only a default and must not replace a detected language.
+      - When its action is `apply-codex-setting`, use the `configuredLanguageId` and its source (`project` before `user`) as the starting language without asking again.
+      - Only when its action is `ask-user`, ask which implementation language the user prefers. This applies to a new workspace or a language-less existing workspace with no applicable Project Bootstrap language preference. Treat "not decided" as a valid comment response.
+      - Codex itself applies general user and project settings. Preserve those settings automatically by leaving their files untouched; this Skill only consumes the safe `[project_bootstrap]` `language` and `locale` defaults returned by the inventory.
+   2. Product or service goal and starting profile.
+   3. Team size, expected traffic, and operations preference.
    4. Budget sensitivity and regulatory or security requirements.
-   5. Display locale.
+   5. Display locale. When `inventory.codexSettings.effective.locale` exists, use it without asking; otherwise ask for the display locale.
 5. Call `list_catalog` and `recommend` after enough context is available. Render the ranked, explainable starting profiles in the Catalog Explorer before presenting the structured choice (or text fallback), and let the user select or comment with an override. A profile may be overridden one decision at a time; never silently select a technology.
 6. Call `validate_selection`. Explain every warning or block with the referenced catalogue IDs and alternatives. If a choice is blocked, ask a replacement question; do not create an implementation plan while blocked rules remain unresolved.
 7. Call `create_plan` only after the user explicitly confirms the selection. Present the validation summary, proposed paths, conflict list, generated records, and command list.

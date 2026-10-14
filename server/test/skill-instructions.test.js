@@ -18,6 +18,15 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /Other.*comment response as a first-class answer/);
   assert.match(skill, /numbered Markdown list ending in `Other — describe your situation`/);
   assert.match(skill, /never approval to write files or run commands/);
+  assert.ok(
+    skill.indexOf("Existing language and Codex defaults.") < skill.indexOf("Product or service goal and starting profile."),
+    "language handling must precede the product profile"
+  );
+  assert.match(skill, /action is `preserve-detected`/);
+  assert.match(skill, /action is `apply-codex-setting`/);
+  assert.match(skill, /action is `ask-user`/);
+  assert.match(skill, /never request, echo, copy, or rewrite raw Codex configuration/);
+  assert.match(skill, /codexSettings\.effective\.locale/);
 });
 
 test("bootstrap skill opens an MCP Apps catalogue explorer instead of claiming native split tabs", () => {

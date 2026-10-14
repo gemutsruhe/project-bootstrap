@@ -30,6 +30,20 @@ Install **Project Bootstrap** from the marketplace in Codex Desktop, then start 
 
 In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. Select an option or use **Other** to leave a comment; neither action authorizes any file change. For catalogue-backed candidates, the Catalog Explorer MCP UI displays the ranked candidate cards alongside their packaged source Markdown, and submits a selected ID and optional comment back to chat. It is an inline plugin view, not a host-native split tab. On hosts without structured Plan questions or MCP Apps UI, the same interview is presented as numbered choices with a free-text `Other` response and catalogue paths in the response.
 
+### Existing projects and Codex settings
+
+For an existing workspace, the inventory preserves detected languages and does not ask the user to replace them. It also checks the user-level Codex configuration (`$CODEX_HOME/config.toml`, normally `~/.codex/config.toml`) and the project-level `.codex/config.toml` without returning their raw contents. Project values take precedence over user values.
+
+Codex continues to apply its ordinary settings itself. The plugin only reads these optional, non-sensitive Project Bootstrap defaults:
+
+```toml
+[project_bootstrap]
+language = "language.typescript" # TypeScript, Python, Java, Kotlin, Go, .NET, or Flutter
+locale = "ko"                    # en or ko
+```
+
+`language` may also use the short value, such as `typescript` or `python`. A detected project language always wins over this default. If neither detection nor an applicable language default is available, the Skill asks for the preferred language before asking about the product profile. Existing configuration files are never copied, changed, or overwritten by the inventory.
+
 ## Development
 
 The repository has no package dependencies. Node's built-in test runner is enough:

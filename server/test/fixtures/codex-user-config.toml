@@ -1,0 +1,6 @@
+[project_bootstrap]
+language = "python"
+locale = "en"
+
+[mcp_servers.not-exposed]
+command = "do-not-return-this"

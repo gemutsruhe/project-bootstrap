@@ -5,6 +5,8 @@ import {
   checkUpdates,
   createCatalogExplorer,
   createPlan,
+  determineLanguageDecision,
+  inspectCodexSettings,
   inspectWorkspace,
   listCatalog,
   loadCatalog,
@@ -122,6 +124,48 @@ test("existing workspace inventory detects current stack and CI without writes",
   assert.ok(inventory.languages.includes("typescript"));
   assert.equal(inventory.detected.githubActions, true);
   assert.ok(inventory.files.includes("src/main.ts"));
+});
+
+test("Codex setting inspection uses project preferences before user preferences without exposing raw config", async () => {
+  const root = path.resolve("server/test/fixtures/existing");
+  const settings = await inspectCodexSettings(root, {
+    globalConfigPath: path.resolve("server/test/fixtures/codex-user-config.toml"),
+    localConfigPath: path.resolve("server/test/fixtures/codex-project-config.toml")
+  });
+
+  assert.equal(settings.user.exists, true);
+  assert.equal(settings.project.exists, true);
+  assert.deepEqual(settings.effective.language, { value: "language.go", source: "project" });
+  assert.deepEqual(settings.effective.locale, { value: "ko", source: "project" });
+  assert.equal(JSON.stringify(settings).includes("not-exposed"), false);
+});
+
+test("detected workspace languages are preserved before Codex defaults, otherwise settings or a question are used", () => {
+  const configured = {
+    effective: { language: { value: "language.python", source: "user" } }
+  };
+  const detected = determineLanguageDecision(["typescript"], configured);
+  assert.equal(detected.action, "preserve-detected");
+  assert.equal(detected.configuredLanguageId, "language.python");
+
+  const configuredOnly = determineLanguageDecision([], configured);
+  assert.equal(configuredOnly.action, "apply-codex-setting");
+  assert.equal(configuredOnly.configuredLanguageId, "language.python");
+
+  assert.equal(determineLanguageDecision([], { effective: {} }).action, "ask-user");
+});
+
+test("workspace inventory keeps a detected language even when a Codex default differs", async () => {
+  const root = path.resolve("server/test/fixtures/existing");
+  const inventory = await inspectWorkspace({
+    root,
+    globalCodexConfigPath: path.resolve("server/test/fixtures/codex-user-config.toml"),
+    localCodexConfigPath: path.resolve("server/test/fixtures/codex-project-config.toml")
+  });
+
+  assert.ok(inventory.languages.includes("typescript"));
+  assert.equal(inventory.languageDecision.action, "preserve-detected");
+  assert.equal(inventory.languageDecision.configuredLanguageId, "language.go");
 });
 
 test("update comparison is semantic and does not use the network", () => {

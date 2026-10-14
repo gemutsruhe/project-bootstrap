@@ -1,0 +1,3 @@
+[project-bootstrap]
+language = "language.go"
+locale = "ko"

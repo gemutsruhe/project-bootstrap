@@ -1,6 +1,6 @@
 {
   "name": "codex-project-bootstrap-marketplace",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "A Codex plugin marketplace for local, approval-gated project bootstrap planning.",

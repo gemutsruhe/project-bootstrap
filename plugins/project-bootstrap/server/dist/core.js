@@ -1,8 +1,9 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PLUGIN_VERSION = "0.2.0";
+export const PLUGIN_VERSION = "0.2.2";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v1.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -21,7 +22,7 @@ const IGNORED_DIRECTORIES = new Set([
 const TOOL_DEFINITIONS = [
   {
     name: "inspect_workspace",
-    description: "Read a local workspace inventory without changing files. Set PROJECT_BOOTSTRAP_ALLOWED_ROOT to restrict readable paths.",
+    description: "Read a local workspace inventory plus a redacted summary of applicable Codex and Project Bootstrap preferences without changing files. Raw configuration values are never returned. Set PROJECT_BOOTSTRAP_ALLOWED_ROOT to restrict readable workspace paths.",
     inputSchema: {
       type: "object",
       properties: {
@@ -321,7 +322,134 @@ async function readTextIfExists(file, limit = 128_000) {
   }
 }
 
-export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300 }) {
+const LANGUAGE_IDS = new Map([
+  ["typescript", "language.typescript"],
+  ["ts", "language.typescript"],
+  ["javascript", "language.typescript"],
+  ["js", "language.typescript"],
+  ["python", "language.python"],
+  ["py", "language.python"],
+  ["java", "language.java"],
+  ["kotlin", "language.kotlin"],
+  ["go", "language.go"],
+  ["golang", "language.go"],
+  ["dotnet", "language.dotnet"],
+  [".net", "language.dotnet"],
+  ["c#", "language.dotnet"],
+  ["csharp", "language.dotnet"],
+  ["flutter", "language.flutter"]
+]);
+
+function parseTomlScalar(value) {
+  const withoutComment = value.replace(/\s+#.*$/, "").trim();
+  if ((withoutComment.startsWith('"') && withoutComment.endsWith('"')) || (withoutComment.startsWith("'") && withoutComment.endsWith("'"))) {
+    return withoutComment.slice(1, -1);
+  }
+  return withoutComment;
+}
+
+function normalizeLanguageId(value) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized.startsWith("language.")) return LANGUAGE_IDS.get(normalized.slice("language.".length));
+  return LANGUAGE_IDS.get(normalized);
+}
+
+export function parseProjectBootstrapConfig(toml) {
+  const settings = {};
+  let inProjectBootstrapTable = false;
+
+  for (const line of String(toml || "").replace(/\r\n/g, "\n").split("\n")) {
+    const table = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
+    if (table) {
+      inProjectBootstrapTable = table[1].trim() === "project_bootstrap" || table[1].trim() === "project-bootstrap";
+      continue;
+    }
+    if (!inProjectBootstrapTable) continue;
+
+    const setting = line.match(/^\s*(language|locale)\s*=\s*(.+?)\s*$/);
+    if (!setting) continue;
+    const key = setting[1];
+    const value = parseTomlScalar(setting[2]);
+    if (key === "language") {
+      const languageId = normalizeLanguageId(value);
+      if (languageId) settings.language = languageId;
+    }
+    if (key === "locale" && ["en", "ko"].includes(value)) settings.locale = value;
+  }
+
+  return settings;
+}
+
+async function inspectCodexConfigFile(file, source) {
+  try {
+    const content = await fs.readFile(file, "utf8");
+    return {
+      source,
+      path: file,
+      exists: true,
+      projectBootstrap: parseProjectBootstrapConfig(content.slice(0, 128_000))
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { source, path: file, exists: false, projectBootstrap: {} };
+    return { source, path: file, exists: false, unreadable: true, projectBootstrap: {} };
+  }
+}
+
+function effectiveBootstrapSetting(project, user, key) {
+  if (project.projectBootstrap[key] !== undefined) return { value: project.projectBootstrap[key], source: "project" };
+  if (user.projectBootstrap[key] !== undefined) return { value: user.projectBootstrap[key], source: "user" };
+  return undefined;
+}
+
+function defaultUserCodexConfigPath() {
+  const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+  return path.join(codexHome, "config.toml");
+}
+
+export async function inspectCodexSettings(workspace, { globalConfigPath, localConfigPath } = {}) {
+  const user = await inspectCodexConfigFile(globalConfigPath || defaultUserCodexConfigPath(), "user");
+  const project = await inspectCodexConfigFile(localConfigPath || path.join(workspace, ".codex", "config.toml"), "project");
+  return {
+    user,
+    project,
+    effective: {
+      language: effectiveBootstrapSetting(project, user, "language"),
+      locale: effectiveBootstrapSetting(project, user, "locale")
+    },
+    precedence: "project-over-user"
+  };
+}
+
+export function determineLanguageDecision(languages, codexSettings = {}) {
+  const detectedLanguages = [...new Set(asList(languages))];
+  const configuredLanguage = codexSettings.effective?.language;
+  if (detectedLanguages.length) {
+    return {
+      action: "preserve-detected",
+      detectedLanguages,
+      configuredLanguageId: configuredLanguage?.value,
+      configuredLanguageSource: configuredLanguage?.source,
+      message: "Detected workspace languages are preserved; a Codex preference is not used to replace them."
+    };
+  }
+  if (configuredLanguage) {
+    return {
+      action: "apply-codex-setting",
+      detectedLanguages,
+      configuredLanguageId: configuredLanguage.value,
+      configuredLanguageSource: configuredLanguage.source,
+      message: "Use the effective Project Bootstrap language preference without asking again."
+    };
+  }
+  return {
+    action: "ask-user",
+    detectedLanguages,
+    message: "No workspace language or Project Bootstrap language preference was found; ask for a preferred language."
+  };
+}
+
+export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300, globalCodexConfigPath, localCodexConfigPath }) {
   const workspace = resolveWorkspaceRoot(root);
   const files = [];
   const truncated = { value: false };
@@ -368,9 +496,19 @@ export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300 }) {
   if (packageJson) languages.push("typescript");
   if (pyproject || files.some((file) => file.endsWith(".py"))) languages.push("python");
   if (goMod || files.some((file) => file.endsWith(".go"))) languages.push("go");
-  if (pom || gradle || files.some((file) => file.endsWith(".java") || file.endsWith(".kt"))) languages.push("jvm");
+  const hasJava = files.some((file) => file.endsWith(".java"));
+  const hasKotlin = files.some((file) => file.endsWith(".kt"));
+  if (hasJava) languages.push("java");
+  if (hasKotlin) languages.push("kotlin");
+  if ((pom || gradle) && !hasJava && !hasKotlin) languages.push("jvm");
   if (csproj || files.some((file) => file.endsWith(".cs"))) languages.push("dotnet");
   if (pubspec || files.some((file) => file.endsWith(".dart"))) languages.push("flutter");
+
+  const codexSettings = await inspectCodexSettings(workspace, {
+    globalConfigPath: globalCodexConfigPath,
+    localConfigPath: localCodexConfigPath
+  });
+  const languageDecision = determineLanguageDecision(languages, codexSettings);
 
   return {
     root: workspace,
@@ -379,6 +517,8 @@ export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300 }) {
     fileCount: files.length,
     truncated: truncated.value,
     languages,
+    codexSettings,
+    languageDecision,
     manifests: {
       packageJson: Boolean(packageJson),
       pyproject: Boolean(pyproject),
