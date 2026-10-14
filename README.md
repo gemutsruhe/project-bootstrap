@@ -10,7 +10,7 @@ It does not send source code to a central service, commit, push, open pull reque
 - Five starting profiles: full-stack web, API/service, mobile, data/AI, and multi-service platform.
 - Deterministic compatibility checks with `pass`, `warning`, and `block` outcomes.
 - A local MCP server for inventory, catalogue queries, recommendation, validation, planning, and a read-only Catalog Explorer UI.
-- A Codex Skill that renders approved bootstrap artifacts and implements the reviewed first working product slice after an explicit approval gate.
+- A Codex Skill that renders approved bootstrap artifacts and invokes supported standard runtime scaffolds after explicit approval gates.
 
 The catalogue is English by default. A caller can request Korean display strings with `locale: "ko"`; stable IDs remain English.
 
@@ -30,7 +30,7 @@ Install **Project Bootstrap** from the marketplace in Codex Desktop, then start 
 
 In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. Select an option or use **Other** to leave a comment; neither action authorizes any file change. For catalogue-backed candidates, the Catalog Explorer MCP UI displays the ranked candidate cards alongside their packaged source Markdown. Submitting an explorer candidate makes that ID the user’s choice for the current decision, retains unrelated earlier choices, then continues with validation or the next relevant candidates. It is an inline plugin view, not a host-native split tab. On hosts without structured Plan questions or MCP Apps UI, the same interview is presented as numbered choices with a free-text `Other` response and catalogue paths in the response.
 
-The interview also defines the first working slice: primary user, one end-to-end workflow, required data or integrations, and observable acceptance criteria. After the user approves the exact generated file plan, the Skill immediately renders and writes every approved non-conflicting bootstrap artifact, then implements the approved source and tests for that slice. It reports created and skipped paths, implemented criteria, and pending commands after inspecting the result. A file-plan approval still does not authorize dependency installation, generators, Git, cloud actions, external API calls, or any other command; those require a separate command approval.
+After the user approves the exact generated file plan, the Skill immediately renders and writes every approved non-conflicting bootstrap artifact: project records, architecture and interface drafts, approved adapter configuration, and optional Codex, container, and CI files. It also lists the standard runtime scaffold command, its expected output paths, and its side effects. For example, a new Flutter selection offers `flutter create --no-pub --project-name <project_name> .` to generate the standard files and platform directories created by Flutter tooling and Android Studio; it runs only after separate command approval. This workflow does not ask for or implement product-specific features. A file-plan approval still does not authorize dependency installation, generators, Git, cloud actions, external API calls, or any other command; those require a separate command approval.
 
 ### Existing projects and Codex settings
 

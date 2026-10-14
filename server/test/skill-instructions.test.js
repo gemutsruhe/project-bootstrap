@@ -30,15 +30,15 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /selectedCatalogId/);
   assert.match(skill, /do not ask the same choice again/);
   assert.match(skill, /apply that exact ID as the user override/);
-  assert.match(skill, /execute the approved file generation and implementation in the same turn/);
+  assert.match(skill, /execute the approved file generation in the same turn/);
   assert.match(skill, /Do not stop at a hypothetical scaffold/);
   assert.match(skill, /write the real, non-empty file at the exact planned path/);
-  assert.match(skill, /Do not claim a file was generated or behavior was implemented unless it exists in the workspace/);
-  assert.match(skill, /First working slice/);
-  assert.match(skill, /concrete implementation plan/);
-  assert.match(skill, /Implement the approved first working slice/);
-  assert.match(skill, /focused automated tests for the stated acceptance criteria/);
-  assert.match(skill, /generic demo/);
+  assert.match(skill, /Do not claim a file was generated unless it exists in the workspace/);
+  assert.match(skill, /Do not ask for product features, user workflows, acceptance criteria, or implementation details/);
+  assert.match(skill, /Do not create product-specific screens, API endpoints, business logic, database schemas, sample user flows, or feature tests/);
+  assert.match(skill, /flutter create --no-pub --project-name <project_name> \./);
+  assert.match(skill, /The file-plan approval does not authorize this command/);
+  assert.doesNotMatch(skill, /First working slice/);
 });
 
 test("bootstrap skill opens an MCP Apps catalogue explorer instead of claiming native split tabs", () => {

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PLUGIN_VERSION = "0.2.6";
+export const PLUGIN_VERSION = "0.2.8";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v2.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -132,11 +132,12 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "create_plan",
-    description: "Produce a read-only local bootstrap plan. A blocked selection produces no writable plan.",
+    description: "Produce a read-only local bootstrap plan, including supported runtime scaffold commands. A blocked selection produces no writable plan.",
     inputSchema: {
       type: "object",
       properties: {
         selectedIds: { type: "array", minItems: 1, items: { type: "string" } },
+        projectName: { type: "string", minLength: 1, maxLength: 80, description: "Name used by a supported runtime scaffold, such as a Flutter package name." },
         requirements: { type: "object" },
         inventory: { type: "object" },
         locale: { type: "string", enum: ["en", "ko"], default: "en" }
@@ -746,10 +747,64 @@ const ADAPTER_ARTIFACTS = {
   "language.kotlin": [["build.gradle.kts", "kotlin-build-config"], ["docs/architecture/interfaces/jvm.md", "jvm-interface-contract"]],
   "language.go": [["go.mod", "go-module-config"], ["docs/architecture/interfaces/go.md", "go-interface-contract"]],
   "language.dotnet": [["Directory.Build.props", "dotnet-build-config"], ["docs/architecture/interfaces/dotnet.md", "dotnet-interface-contract"]],
-  "language.flutter": [["analysis_options.yaml", "flutter-analysis-config"], ["docs/architecture/interfaces/flutter.md", "flutter-interface-contract"]]
+  "language.flutter": [["docs/architecture/interfaces/flutter.md", "flutter-interface-contract"]]
 };
 
-export function createPlan(entries, { selectedIds, requirements = {}, inventory = {}, locale = "en" } = {}) {
+const FLUTTER_STANDARD_PATHS = [
+  "pubspec.yaml",
+  "analysis_options.yaml",
+  "lib/main.dart",
+  "test/widget_test.dart",
+  "android/",
+  "ios/",
+  "web/",
+  "windows/",
+  "macos/",
+  "linux/"
+];
+
+function normalizeFlutterProjectName(value) {
+  let normalized = String(value || "app")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) normalized = "app";
+  if (!/^[a-z]/.test(normalized)) normalized = `app_${normalized}`;
+  return normalized.slice(0, 80).replace(/_+$/g, "") || "app";
+}
+
+function planRuntimeScaffolds(selectedIds, inventory, projectName) {
+  const selected = new Set(selectedIds);
+  const files = new Set(asList(inventory.files));
+  if (!selected.has("language.flutter")) return [];
+
+  const flutterAlreadyExists = ["pubspec.yaml", "lib/main.dart", "android/"]
+    .some((entry) => files.has(entry) || files.has(entry.replace(/\/$/, "")) || [...files].some((file) => file.startsWith(entry)));
+  if (flutterAlreadyExists) {
+    return [{
+      runtime: "flutter",
+      operation: "not-needed",
+      reason: "A Flutter project scaffold is already present; preserve it and do not run flutter create.",
+      expectedPaths: FLUTTER_STANDARD_PATHS,
+      approvalRequired: true
+    }];
+  }
+
+  const normalizedName = normalizeFlutterProjectName(projectName);
+  return [{
+    runtime: "flutter",
+    operation: "generate",
+    command: `flutter create --no-pub --project-name ${normalizedName} .`,
+    workingDirectory: "workspace root",
+    purpose: "Generate the standard Flutter project structure used by Flutter tooling and Android Studio without fetching packages.",
+    expectedPaths: FLUTTER_STANDARD_PATHS,
+    networkEffect: "No dependency fetch is requested because --no-pub is used; the locally installed Flutter SDK supplies the templates.",
+    approvalRequired: true
+  }];
+}
+
+export function createPlan(entries, { selectedIds, projectName, requirements = {}, inventory = {}, locale = "en" } = {}) {
   const validation = validateSelection(entries, { selectedIds, requirements, inventory, locale });
   if (validation.status === "block") {
     return {
@@ -771,13 +826,25 @@ export function createPlan(entries, { selectedIds, requirements = {}, inventory 
     operation: knownFiles.has(file) ? "conflict" : "create",
     approvalRequired: true
   }));
+  const scaffolds = planRuntimeScaffolds(selectedIds, inventory, projectName || requirements.projectName);
+  const scaffoldCommands = scaffolds
+    .filter((scaffold) => scaffold.operation === "generate")
+    .map(({ command, workingDirectory, purpose, expectedPaths, networkEffect, approvalRequired }) => ({
+      command,
+      workingDirectory,
+      purpose,
+      expectedPaths,
+      networkEffect,
+      approvalRequired
+    }));
 
   return {
     status: validation.status === "warning" ? "ready-with-warnings" : "ready",
     validation,
     selectedIds: [...new Set(selectedIds)],
     artifacts: plans,
-    commands: [
+    scaffolds,
+    commands: scaffoldCommands.length ? scaffoldCommands : [
       {
         command: "No command is scheduled by default.",
         purpose: "This plan only creates documentation and configuration drafts after file-plan approval.",
@@ -787,7 +854,7 @@ export function createPlan(entries, { selectedIds, requirements = {}, inventory 
     safeguards: [
       "No filesystem writes are performed by this MCP tool.",
       "Conflicting existing files require a path-specific decision.",
-      "Dependency installation, scaffolding commands, and Git operations require separate approval."
+      "Dependency installation, runtime scaffolding commands, and Git operations require separate approval."
     ]
   };
 }

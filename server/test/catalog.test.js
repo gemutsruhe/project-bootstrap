@@ -127,6 +127,32 @@ test("all supported runtime adapters produce a reviewable plan", () => {
   }
 });
 
+test("a new Flutter selection plans the standard Flutter SDK scaffold separately from file writes", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["language.flutter"],
+    projectName: "My Starter App",
+    inventory: { files: [] }
+  });
+  assert.equal(plan.status, "ready");
+  assert.equal(plan.scaffolds[0].runtime, "flutter");
+  assert.equal(plan.scaffolds[0].operation, "generate");
+  assert.equal(plan.commands[0].command, "flutter create --no-pub --project-name my_starter_app .");
+  assert.ok(plan.commands[0].expectedPaths.includes("lib/main.dart"));
+  assert.ok(plan.commands[0].expectedPaths.includes("android/"));
+  assert.equal(plan.commands[0].approvalRequired, true);
+  assert.equal(plan.artifacts.some((artifact) => artifact.path === "analysis_options.yaml"), false);
+});
+
+test("an existing Flutter scaffold is preserved without a flutter create command", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["language.flutter"],
+    projectName: "existing_app",
+    inventory: { files: ["pubspec.yaml", "lib/main.dart", "android/app/build.gradle.kts"] }
+  });
+  assert.equal(plan.scaffolds[0].operation, "not-needed");
+  assert.equal(plan.commands[0].command, "No command is scheduled by default.");
+});
+
 test("plans mark existing paths as conflicts and do not schedule commands", () => {
   const plan = createPlan(catalog, {
     selectedIds: ["language.typescript"],
