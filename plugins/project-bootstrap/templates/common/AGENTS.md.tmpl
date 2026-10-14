@@ -1,0 +1,15 @@
+# {{PROJECT_NAME}} agent instructions
+
+## Bootstrap boundary
+
+The project was bootstrapped with catalogue version {{CATALOG_VERSION}} and selected IDs:
+
+{{SELECTED_IDS}}
+
+Review `.project-bootstrap/selection.yaml` and `docs/project-bootstrap/` before proposing architectural changes. Preserve existing user-owned files, do not introduce credentials into source control, and show a plan before structural or dependency changes.
+
+## Quality gates
+
+- Keep public contracts documented and backward-compatible unless a reviewed decision record says otherwise.
+- Add or update relevant tests with each implementation change.
+- Do not run deployment, infrastructure initialization, or Git remote operations without explicit user approval.

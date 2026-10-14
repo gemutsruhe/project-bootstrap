@@ -1,0 +1,10 @@
+services:
+  app:
+    image: {{PROJECT_NAME}}:local
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+# Add selected backing services only after the user approves their configuration.

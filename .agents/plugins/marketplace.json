@@ -1,0 +1,20 @@
+{
+  "name": "codex-project-bootstrap",
+  "interface": {
+    "displayName": "Codex Project Bootstrap"
+  },
+  "plugins": [
+    {
+      "name": "project-bootstrap",
+      "source": {
+        "source": "local",
+        "path": "./plugins/project-bootstrap"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer tools"
+    }
+  ]
+}

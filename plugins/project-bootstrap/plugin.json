@@ -1,0 +1,34 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "project-bootstrap",
+  "version": "0.1.0",
+  "description": "Plan and validate local project bootstrap decisions before creating configuration artifacts.",
+  "keywords": [
+    "architecture",
+    "bootstrap",
+    "codex",
+    "local",
+    "project-setup"
+  ],
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "interface": {
+        "displayName": "Project Bootstrap",
+        "shortDescription": "Validate and plan local project setup.",
+        "longDescription": "Select architecture and platform choices, validate their compatibility, and prepare an approval-gated local bootstrap plan.",
+        "developerName": "Project Bootstrap Contributors",
+        "category": "Developer tools",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Use Project Bootstrap to inspect this local workspace and propose a validated setup plan.",
+          "Use Project Bootstrap to compare architecture options without modifying files."
+        ]
+      }
+    }
+  }
+}
