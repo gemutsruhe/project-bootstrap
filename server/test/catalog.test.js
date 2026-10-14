@@ -5,7 +5,8 @@ import {
   checkUpdates,
   createCatalogExplorer,
   createPlan,
-  determineLanguageDecision,
+  determineProgrammingLanguageDecision,
+  determineResponseLocaleDecision,
   inspectCodexSettings,
   inspectWorkspace,
   listCatalog,
@@ -135,27 +136,28 @@ test("Codex setting inspection uses project preferences before user preferences 
 
   assert.equal(settings.user.exists, true);
   assert.equal(settings.project.exists, true);
-  assert.deepEqual(settings.effective.language, { value: "language.go", source: "project" });
   assert.deepEqual(settings.effective.locale, { value: "ko", source: "project" });
+  assert.deepEqual(settings.user.projectBootstrap, { locale: "en" });
   assert.equal(JSON.stringify(settings).includes("not-exposed"), false);
 });
 
-test("detected workspace languages are preserved before Codex defaults, otherwise settings or a question are used", () => {
+test("programming-language preservation and response-locale selection are separate", () => {
   const configured = {
-    effective: { language: { value: "language.python", source: "user" } }
+    effective: { locale: { value: "ko", source: "user" } }
   };
-  const detected = determineLanguageDecision(["typescript"], configured);
+  const detected = determineProgrammingLanguageDecision(["typescript"]);
   assert.equal(detected.action, "preserve-detected");
-  assert.equal(detected.configuredLanguageId, "language.python");
+  assert.deepEqual(detected.detectedLanguages, ["typescript"]);
+  assert.equal(determineProgrammingLanguageDecision([]).action, "defer-to-profile");
 
-  const configuredOnly = determineLanguageDecision([], configured);
-  assert.equal(configuredOnly.action, "apply-codex-setting");
-  assert.equal(configuredOnly.configuredLanguageId, "language.python");
+  const configuredLocale = determineResponseLocaleDecision(configured);
+  assert.equal(configuredLocale.action, "apply-codex-setting");
+  assert.equal(configuredLocale.locale, "ko");
 
-  assert.equal(determineLanguageDecision([], { effective: {} }).action, "ask-user");
+  assert.equal(determineResponseLocaleDecision({ effective: {} }).action, "ask-user");
 });
 
-test("workspace inventory keeps a detected language even when a Codex default differs", async () => {
+test("workspace inventory preserves a detected programming language while applying a response locale", async () => {
   const root = path.resolve("server/test/fixtures/existing");
   const inventory = await inspectWorkspace({
     root,
@@ -164,8 +166,9 @@ test("workspace inventory keeps a detected language even when a Codex default di
   });
 
   assert.ok(inventory.languages.includes("typescript"));
-  assert.equal(inventory.languageDecision.action, "preserve-detected");
-  assert.equal(inventory.languageDecision.configuredLanguageId, "language.go");
+  assert.equal(inventory.programmingLanguageDecision.action, "preserve-detected");
+  assert.equal(inventory.responseLocaleDecision.action, "apply-codex-setting");
+  assert.equal(inventory.responseLocaleDecision.locale, "ko");
 });
 
 test("update comparison is semantic and does not use the network", () => {

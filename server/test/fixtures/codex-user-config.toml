@@ -1,5 +1,5 @@
 [project_bootstrap]
-language = "python"
+language = "language.python"
 locale = "en"
 
 [mcp_servers.not-exposed]

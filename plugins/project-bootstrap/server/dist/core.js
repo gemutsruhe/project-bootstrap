@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PLUGIN_VERSION = "0.2.2";
+export const PLUGIN_VERSION = "0.2.3";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v1.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -322,37 +322,12 @@ async function readTextIfExists(file, limit = 128_000) {
   }
 }
 
-const LANGUAGE_IDS = new Map([
-  ["typescript", "language.typescript"],
-  ["ts", "language.typescript"],
-  ["javascript", "language.typescript"],
-  ["js", "language.typescript"],
-  ["python", "language.python"],
-  ["py", "language.python"],
-  ["java", "language.java"],
-  ["kotlin", "language.kotlin"],
-  ["go", "language.go"],
-  ["golang", "language.go"],
-  ["dotnet", "language.dotnet"],
-  [".net", "language.dotnet"],
-  ["c#", "language.dotnet"],
-  ["csharp", "language.dotnet"],
-  ["flutter", "language.flutter"]
-]);
-
 function parseTomlScalar(value) {
   const withoutComment = value.replace(/\s+#.*$/, "").trim();
   if ((withoutComment.startsWith('"') && withoutComment.endsWith('"')) || (withoutComment.startsWith("'") && withoutComment.endsWith("'"))) {
     return withoutComment.slice(1, -1);
   }
   return withoutComment;
-}
-
-function normalizeLanguageId(value) {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized.startsWith("language.")) return LANGUAGE_IDS.get(normalized.slice("language.".length));
-  return LANGUAGE_IDS.get(normalized);
 }
 
 export function parseProjectBootstrapConfig(toml) {
@@ -371,11 +346,8 @@ export function parseProjectBootstrapConfig(toml) {
     if (!setting) continue;
     const key = setting[1];
     const value = parseTomlScalar(setting[2]);
-    if (key === "language") {
-      const languageId = normalizeLanguageId(value);
-      if (languageId) settings.language = languageId;
-    }
     if (key === "locale" && ["en", "ko"].includes(value)) settings.locale = value;
+    if (key === "language" && settings.locale === undefined && ["en", "ko"].includes(value)) settings.locale = value;
   }
 
   return settings;
@@ -414,38 +386,42 @@ export async function inspectCodexSettings(workspace, { globalConfigPath, localC
     user,
     project,
     effective: {
-      language: effectiveBootstrapSetting(project, user, "language"),
       locale: effectiveBootstrapSetting(project, user, "locale")
     },
     precedence: "project-over-user"
   };
 }
 
-export function determineLanguageDecision(languages, codexSettings = {}) {
+export function determineProgrammingLanguageDecision(languages) {
   const detectedLanguages = [...new Set(asList(languages))];
-  const configuredLanguage = codexSettings.effective?.language;
   if (detectedLanguages.length) {
     return {
       action: "preserve-detected",
       detectedLanguages,
-      configuredLanguageId: configuredLanguage?.value,
-      configuredLanguageSource: configuredLanguage?.source,
-      message: "Detected workspace languages are preserved; a Codex preference is not used to replace them."
+      message: "Detected workspace programming languages are preserved as planning constraints."
     };
   }
-  if (configuredLanguage) {
+  return {
+    action: "defer-to-profile",
+    detectedLanguages,
+    message: "No programming language was detected; determine it later from the selected project profile and catalogue options."
+  };
+}
+
+export function determineResponseLocaleDecision(codexSettings = {}) {
+  const configuredLocale = codexSettings.effective?.locale;
+  if (configuredLocale) {
     return {
       action: "apply-codex-setting",
-      detectedLanguages,
-      configuredLanguageId: configuredLanguage.value,
-      configuredLanguageSource: configuredLanguage.source,
-      message: "Use the effective Project Bootstrap language preference without asking again."
+      locale: configuredLocale.value,
+      source: configuredLocale.source,
+      message: "Use the effective Codex response locale without asking again."
     };
   }
   return {
     action: "ask-user",
-    detectedLanguages,
-    message: "No workspace language or Project Bootstrap language preference was found; ask for a preferred language."
+    supportedLocales: ["ko", "en"],
+    message: "No response locale was found; ask which language to use for the guided questions and answers."
   };
 }
 
@@ -508,7 +484,8 @@ export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300, glo
     globalConfigPath: globalCodexConfigPath,
     localConfigPath: localCodexConfigPath
   });
-  const languageDecision = determineLanguageDecision(languages, codexSettings);
+  const programmingLanguageDecision = determineProgrammingLanguageDecision(languages);
+  const responseLocaleDecision = determineResponseLocaleDecision(codexSettings);
 
   return {
     root: workspace,
@@ -518,7 +495,8 @@ export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300, glo
     truncated: truncated.value,
     languages,
     codexSettings,
-    languageDecision,
+    programmingLanguageDecision,
+    responseLocaleDecision,
     manifests: {
       packageJson: Boolean(packageJson),
       pyproject: Boolean(pyproject),

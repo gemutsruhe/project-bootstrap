@@ -32,17 +32,16 @@ In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available
 
 ### Existing projects and Codex settings
 
-For an existing workspace, the inventory preserves detected languages and does not ask the user to replace them. It also checks the user-level Codex configuration (`$CODEX_HOME/config.toml`, normally `~/.codex/config.toml`) and the project-level `.codex/config.toml` without returning their raw contents. Project values take precedence over user values.
+For an existing workspace, the inventory preserves detected programming languages and does not ask the user to replace them. It also checks the user-level Codex configuration (`$CODEX_HOME/config.toml`, normally `~/.codex/config.toml`) and the project-level `.codex/config.toml` without returning their raw contents. Project values take precedence over user values.
 
 Codex continues to apply its ordinary settings itself. The plugin only reads these optional, non-sensitive Project Bootstrap defaults:
 
 ```toml
 [project_bootstrap]
-language = "language.typescript" # TypeScript, Python, Java, Kotlin, Go, .NET, or Flutter
-locale = "ko"                    # en or ko
+locale = "ko" # Korean question-and-answer language; use en for English
 ```
 
-`language` may also use the short value, such as `typescript` or `python`. A detected project language always wins over this default. If neither detection nor an applicable language default is available, the Skill asks for the preferred language before asking about the product profile. Existing configuration files are never copied, changed, or overwritten by the inventory.
+`locale` controls the language used for questions, answers, and catalogue display. If no effective locale is configured, the Skill asks for the preferred question-and-answer language before asking about the product profile. Programming languages are inferred from the workspace or selected later through the project profile; they are never inferred from the response language. Existing configuration files are never copied, changed, or overwritten by the inventory.
 
 ## Development
 
