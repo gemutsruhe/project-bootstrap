@@ -7,13 +7,23 @@ description: Inspect a local project, recommend and validate its architecture an
 
 Use the bundled `project-bootstrap` MCP server to keep selection, validation, and planning deterministic. Its tools are read-only. Treat its output as a proposal, not as authorization to write files or run commands.
 
-## Discovery and selection
+## Guided interview and selection
 
-1. Ask for the project goal, team constraints, expected scale, budget sensitivity, regulatory requirements, operations preference, preferred display locale, and whether the workspace is new or existing when those facts are unknown.
-2. Call `inspect_workspace` for the target workspace. For an existing project, preserve detected runtimes, manifests, deployment configuration, and user-owned files unless the user explicitly asks to replace them.
-3. Call `list_catalog` and `recommend` to present a starting profile plus ranked, explainable alternatives. A profile may be overridden one decision at a time; never silently select a technology.
-4. Call `validate_selection`. Explain every warning or block with the referenced catalogue IDs and alternatives. Do not create an implementation plan while blocked rules remain unresolved.
-5. Call `create_plan` only after the user confirms the selection. Present the validation summary, proposed paths, conflict list, generated records, and command list.
+1. Call `inspect_workspace` for the target workspace before asking for details that the inventory can determine. For an existing project, preserve detected runtimes, manifests, deployment configuration, and user-owned files unless the user explicitly asks to replace them.
+2. Collect unknown decisions as a short, progressive interview. Never present the full questionnaire at once.
+   - When the host exposes a structured question control in Plan mode, use it for one decision at a time. Provide two or three mutually exclusive choices, put the recommended choice first, and state each choice's consequence concisely.
+   - Treat the host's `Other`/comment response as a first-class answer. Explicitly invite a comment whenever the listed choices do not fit; do not force a listed choice.
+   - When a structured control is unavailable, present the same one-decision question as a numbered Markdown list ending in `Other — describe your situation`. Wait for the answer before the next decision.
+   - A choice, comment, or profile confirmation only guides planning. It is never approval to write files or run commands.
+3. Ask only the next decision needed, skipping facts already supplied or found in the inventory. Use this order unless the user's answer makes another question more relevant:
+   1. Product or service goal and starting profile.
+   2. Team size and existing or preferred language/framework constraints.
+   3. Expected traffic and operations preference.
+   4. Budget sensitivity and regulatory or security requirements.
+   5. Display locale.
+4. Call `list_catalog` and `recommend` after enough context is available. Present the ranked, explainable starting profiles in another structured choice (or the text fallback) and let the user select or comment with an override. A profile may be overridden one decision at a time; never silently select a technology.
+5. Call `validate_selection`. Explain every warning or block with the referenced catalogue IDs and alternatives. If a choice is blocked, ask a replacement question; do not create an implementation plan while blocked rules remain unresolved.
+6. Call `create_plan` only after the user explicitly confirms the selection. Present the validation summary, proposed paths, conflict list, generated records, and command list.
 
 ## Approval gate
 

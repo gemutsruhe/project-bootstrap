@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PLUGIN_VERSION = "0.1.0";
+export const PLUGIN_VERSION = "0.1.1";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const IGNORED_DIRECTORIES = new Set([

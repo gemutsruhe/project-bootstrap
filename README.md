@@ -26,6 +26,10 @@ Install **Project Bootstrap** from the marketplace in Codex Desktop, then start 
 
 > This is a local-MCP plugin. It is intended for Codex Desktop and local Codex tasks, not the public Plugins Directory.
 
+## Guided planning
+
+In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. Select an option or use **Other** to leave a comment; neither action authorizes any file change. On hosts without structured Plan questions, the same interview is presented as numbered choices with a free-text `Other` response.
+
 ## Development
 
 The repository has no package dependencies. Node's built-in test runner is enough:
