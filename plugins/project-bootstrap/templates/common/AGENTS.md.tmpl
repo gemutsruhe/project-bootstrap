@@ -1,5 +1,7 @@
 # {{PROJECT_NAME}} agent instructions
 
+This guide is derived from the reviewed local workspace inventory. It does not replace an existing project guide, and it does not invent commands or directory ownership that the inventory did not establish.
+
 ## Bootstrap boundary
 
 The project was bootstrapped with catalogue version {{CATALOG_VERSION}} and selected IDs:
@@ -7,6 +9,43 @@ The project was bootstrapped with catalogue version {{CATALOG_VERSION}} and sele
 {{SELECTED_IDS}}
 
 Review `.project-bootstrap/selection.yaml` and `docs/project-bootstrap/` before proposing architectural changes. Preserve existing user-owned files, do not introduce credentials into source control, and show a plan before structural or dependency changes.
+
+## Project guides
+
+These guides are project conventions. Read only the guide relevant to the task; do not load every guide for routine, focused edits.
+
+- Read `ARCHITECTURE.md` and `docs/architecture/overview.md` before changing a boundary, public interface, data flow, deployment shape, or cross-cutting concern.
+- Read `TEAM_GUIDE.md` when work affects ownership, handoffs, or coordination across contributors.
+- Follow `PLANS.md` for a multi-step, risky, or cross-cutting change. Keep a durable plan in `docs/plans/` when that guide requires one.
+- Apply `CODE_REVIEW.md` when reviewing code or preparing a change for review. If GitHub is used, complete `.github/pull_request_template.md` as applicable.
+
+## Reviewed workspace policy
+
+{{AGENTS_GUIDE_DECISIONS}}
+
+## Coding conventions
+
+{{AGENTS_CODING_CONVENTIONS}}
+
+## Repository map
+
+{{AGENTS_REPOSITORY_MAP}}
+
+## Declared verification commands
+
+{{AGENTS_VERIFICATION_COMMANDS}}
+
+## Managed-path boundaries
+
+{{AGENTS_BOUNDARIES}}
+
+## Local instruction scope
+
+{{AGENTS_LOCAL_GUIDANCE}}
+
+## Change and review invariants
+
+{{AGENTS_REVIEW_RULES}}
 
 ## Quality gates
 

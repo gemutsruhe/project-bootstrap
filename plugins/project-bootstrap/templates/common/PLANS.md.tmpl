@@ -1,0 +1,25 @@
+# {{PROJECT_NAME}} planning guide
+
+## When a written plan is required
+
+Create a durable execution plan for work that is multi-step, risky, cross-cutting, difficult to reverse, or changes an interface, data contract, deployment, security posture, or dependency boundary. A focused documentation-only correction normally does not need one.
+
+## Reviewed planning policy
+
+{{PLANS_GUIDE_DECISIONS}}
+
+## Plan location and contents
+
+Store durable plans in `docs/plans/` using a descriptive filename. A plan must be self-contained and include:
+
+1. Goal, non-goals, and the user-visible outcome.
+2. Current state and the selected architectural constraints.
+3. Exact paths or components that will change, plus public-contract and data effects.
+4. Ordered implementation steps, validation commands/tests, and success criteria.
+5. Risks, rollback or recovery approach, and any decision that needs review before proceeding.
+
+## Execution rules
+
+- Plans guide implementation; they do not authorize file writes, command execution, deployment, or Git operations by themselves.
+- Keep the plan current as material decisions change, and link related decision records.
+- Ask for review before proceeding when the plan reveals a new cross-cutting impact or unresolved trade-off.

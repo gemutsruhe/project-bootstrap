@@ -16,7 +16,7 @@ async function filesEqual(left, right) {
 }
 
 if (checkOnly) {
-  const expected = ["core.js", "index.js"];
+  const expected = ["core.js", "guide-policies.js", "index.js"];
   const stale = [];
   for (const file of expected) {
     if (!(await filesEqual(path.join(source, file), path.join(destination, file)))) stale.push(file);

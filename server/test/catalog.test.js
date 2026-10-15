@@ -3,12 +3,14 @@ import path from "node:path";
 import test from "node:test";
 import {
   checkUpdates,
+  createAgentsGuideBlueprint,
   createCatalogExplorer,
   createPlan,
   determineProgrammingLanguageDecision,
   determineResponseLocaleDecision,
   inspectCodexSettings,
   inspectWorkspace,
+  listGuidePolicies,
   listCatalog,
   loadCatalog,
   parseFrontmatter,
@@ -80,6 +82,115 @@ test("each supported starting profile produces a non-writing review plan", () =>
     assert.ok(plan.artifacts.every((artifact) => artifact.approvalRequired), id);
     assert.equal(plan.commands[0].approvalRequired, true, id);
   }
+});
+
+test("plans include the complete Codex workspace guide bundle", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["profile.web-fullstack"],
+    inventory: { files: [] }
+  });
+  const templates = new Map(plan.artifacts.map((artifact) => [artifact.path, artifact.template]));
+
+  assert.deepEqual(
+    ["AGENTS.md", "ARCHITECTURE.md", "TEAM_GUIDE.md", "PLANS.md", "CODE_REVIEW.md"].map((path) => [path, templates.get(path)]),
+    [
+      ["AGENTS.md", "codex-instructions"],
+      ["ARCHITECTURE.md", "architecture-guide"],
+      ["TEAM_GUIDE.md", "team-guide"],
+      ["PLANS.md", "planning-guide"],
+      ["CODE_REVIEW.md", "code-review-guide"]
+    ]
+  );
+  assert.equal(templates.has(".github/pull_request_template.md"), false);
+  assert.equal(templates.has(".codex/config.toml"), false);
+  assert.equal(templates.has("docker-compose.yml"), false);
+  assert.equal(templates.has(".github/workflows/ci.yml"), false);
+});
+
+test("guide policy catalogue has localized, versioned defaults", () => {
+  const policies = listGuidePolicies({ locale: "ko" });
+  const agents = policies.find((guide) => guide.key === "agents");
+  assert.equal(agents.profiles[0].id, "contextual");
+  assert.match(agents.profiles[0].label, /상황별/);
+  assert.equal(agents.profiles[0].defaults.localScope, "root-only");
+  assert.equal(agents.profiles[0].defaults.codingStyle, "existing-patterns");
+  assert.ok(agents.fields.functionDesign.includes("separate-effects"));
+});
+
+test("plans normalize reviewed workspace-guide decisions against the policy catalogue", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["profile.web-fullstack"],
+    inventory: { files: [] },
+    workspaceSettings: { collaborationHost: "github" },
+    guideDecisions: {
+      agents: { profile: "strict-governance", verification: "affected-checks" },
+      plans: { profile: "significant-change", detail: "scope-and-tests" },
+      pullRequest: { profile: "standard", issueLinks: "optional" }
+    }
+  });
+
+  assert.deepEqual(plan.guideDecisions, {
+    agents: { profile: "strict-governance", routing: "relevant-guide-and-plan", verification: "affected-checks", localScope: "root-only", codingStyle: "modular-boundaries", functionDesign: "separate-effects", commentStyle: "why-and-invariants" },
+    plans: { profile: "significant-change", trigger: "significant-change", detail: "scope-and-tests", lifecycle: "update-while-implementing" },
+    pullRequest: { profile: "standard", issueLinks: "optional", checklist: "none" }
+  });
+  assert.equal(plan.guidePolicySchemaVersion, 2);
+  assert.equal(plan.artifacts.find((artifact) => artifact.path === ".github/pull_request_template.md").operation, "create");
+});
+
+test("guide policies reject unknown values and GitHub-only decisions without a GitHub host", () => {
+  assert.throws(
+    () => createPlan(catalog, { selectedIds: ["profile.web-fullstack"], guideDecisions: { agents: { profile: "not-a-policy" } } }),
+    /Invalid agents\.profile/
+  );
+  assert.throws(
+    () => createPlan(catalog, { selectedIds: ["profile.web-fullstack"], guideDecisions: { pullRequest: { profile: "standard" } } }),
+    /require collaborationHost: github/
+  );
+  assert.throws(
+    () => createPlan(catalog, { selectedIds: ["profile.web-fullstack"], guideDecisions: { agents: { profile: "custom" } } }),
+    /comment is required/
+  );
+  assert.throws(
+    () => createPlan(catalog, { selectedIds: ["profile.web-fullstack"], guideDecisions: { agents: { profile: "contextual", codingStyle: "custom" } } }),
+    /comment is required/
+  );
+});
+
+test("delivery and GitHub artifacts require explicit matching decisions", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["delivery.docker-compose", "delivery.github-actions"],
+    inventory: { files: [] },
+    workspaceSettings: { collaborationHost: "github" },
+    guideDecisions: { pullRequest: { profile: "minimal" } }
+  });
+  const paths = plan.artifacts.map((artifact) => artifact.path);
+  assert.ok(paths.includes("docker-compose.yml"));
+  assert.ok(paths.includes(".github/workflows/ci.yml"));
+  assert.ok(paths.includes(".github/pull_request_template.md"));
+});
+
+test("alternate GitHub pull-request templates require a non-writing merge preview", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["profile.web-fullstack"],
+    inventory: { files: ["docs/pull_request_template.md"] },
+    workspaceSettings: { collaborationHost: "github" },
+    guideDecisions: { pullRequest: { profile: "standard" } }
+  });
+  const pullRequest = plan.artifacts.find((artifact) => artifact.path === ".github/pull_request_template.md");
+  assert.equal(plan.status, "ready-with-warnings");
+  assert.equal(pullRequest.operation, "merge-preview");
+  assert.deepEqual(pullRequest.relatedPaths, ["docs/pull_request_template.md"]);
+});
+
+test("a truncated inventory blocks all file planning", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["profile.web-fullstack"],
+    inventory: { files: ["README.md"], truncated: true }
+  });
+  assert.equal(plan.status, "blocked");
+  assert.equal(plan.artifacts.length, 0);
+  assert.ok(plan.validation.messages.some((message) => message.code === "incomplete-workspace-inventory"));
 });
 
 test("recommendation remains explainable and preserves explicit preference", () => {
@@ -155,7 +266,7 @@ test("an existing Flutter scaffold is preserved without a flutter create command
 
 test("plans mark existing paths as conflicts and do not schedule commands", () => {
   const plan = createPlan(catalog, {
-    selectedIds: ["language.typescript"],
+    selectedIds: ["language.typescript", "delivery.github-actions"],
     inventory: { files: ["AGENTS.md", ".github/workflows/ci.yml"] }
   });
   assert.equal(plan.status, "ready");
@@ -171,6 +282,69 @@ test("existing workspace inventory detects current stack and CI without writes",
   assert.ok(inventory.languages.includes("typescript"));
   assert.equal(inventory.detected.githubActions, true);
   assert.ok(inventory.files.includes("src/main.ts"));
+});
+
+test("workspace inventory identifies existing configuration ownership paths", async () => {
+  const root = path.resolve("server/test/fixtures/configured");
+  const inventory = await inspectWorkspace({ root });
+  assert.ok(inventory.languages.includes("typescript"));
+  assert.deepEqual(inventory.configuration.pullRequestTemplates, ["docs/pull_request_template.md"]);
+  assert.deepEqual(inventory.configuration.codeowners, [".github/CODEOWNERS"]);
+  assert.deepEqual(inventory.configuration.codexConfigs, [".codex/config.toml"]);
+  assert.equal(inventory.accessScope.mode, "host-boundary-not-configured");
+});
+
+test("AGENTS guide evidence is grounded in local paths and declared script names", async () => {
+  const root = path.resolve("server/test/fixtures/agents-evidence");
+  const inventory = await inspectWorkspace({ root });
+  const evidence = inventory.agentGuideEvidence;
+
+  assert.deepEqual(evidence.repositoryMap.sourceRoots, ["packages/", "packages/api/src/", "src/"]);
+  assert.deepEqual(evidence.repositoryMap.testRoots, ["tests/"]);
+  assert.deepEqual(evidence.repositoryMap.documentationRoots, ["docs/"]);
+  assert.deepEqual(evidence.repositoryMap.manifestPaths, ["package.json", "packages/api/package.json"]);
+  assert.deepEqual(evidence.verification.commands.map((entry) => entry.command), [
+    "pnpm run lint",
+    "pnpm run test",
+    "pnpm run typecheck",
+    "pnpm run test:integration"
+  ]);
+  assert.deepEqual(evidence.verification.commands.map((entry) => entry.workingDirectory), [
+    "workspace root",
+    "workspace root",
+    "workspace root",
+    "packages/api/"
+  ]);
+  assert.deepEqual(evidence.boundaries.lockfiles, ["pnpm-lock.yaml"]);
+  assert.deepEqual(evidence.boundaries.generatedFileHints, ["src/api.generated.ts"]);
+  assert.equal(JSON.stringify(evidence).includes("vitest run --coverage"), false);
+
+  const blueprint = createAgentsGuideBlueprint(inventory, { localScope: "nested-where-needed" });
+  assert.equal(blueprint.status, "grounded");
+  assert.match(blueprint.templateValues.repositoryMap, /`packages\/api\/src\//);
+  assert.match(blueprint.templateValues.repositoryMap, /`packages\/api\/package\.json`/);
+  assert.match(blueprint.templateValues.verificationCommands, /`pnpm run test`/);
+  assert.match(blueprint.templateValues.boundaries, /`src\/api\.generated\.ts`/);
+  assert.match(blueprint.templateValues.localGuidance, /`packages\/api\/src\//);
+  assert.match(blueprint.templateValues.codingConventions, /closest established local pattern/);
+  assert.match(blueprint.templateValues.reviewRules, /consequential, non-obvious invariant/);
+
+  const functionalBlueprint = createAgentsGuideBlueprint(inventory, {
+    codingStyle: "functional-core",
+    functionDesign: "separate-effects",
+    commentStyle: "minimal"
+  });
+  assert.match(functionalBlueprint.templateValues.codingConventions, /functional core/);
+  assert.match(functionalBlueprint.templateValues.codingConventions, /Separate orchestration and side effects/);
+  assert.match(functionalBlueprint.templateValues.codingConventions, /Prefer clear names/);
+
+  const plan = createPlan(catalog, {
+    selectedIds: ["profile.web-fullstack"],
+    inventory,
+    guideDecisions: { agents: { profile: "contextual", localScope: "nested-where-needed" } }
+  });
+  assert.equal(plan.agentsGuide.status, "grounded");
+  assert.equal(plan.agentsGuide.review.required, true);
 });
 
 test("Codex setting inspection uses project preferences before user preferences without exposing raw config", async () => {

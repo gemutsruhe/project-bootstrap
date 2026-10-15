@@ -1,0 +1,20 @@
+# {{PROJECT_NAME}} code review guide
+
+## Review order
+
+1. Confirm the change is within its stated scope and preserves the selected architecture.
+2. Check correctness at module boundaries, public contracts, error handling, and backward compatibility.
+3. Check security and privacy: secrets, authentication/authorization, input handling, data exposure, and dependency risk.
+4. Check tests, observability, configuration, documentation, and rollout or migration safety where relevant.
+
+## Reviewed review policy
+
+{{CODE_REVIEW_GUIDE_DECISIONS}}
+
+## Findings
+
+Report only actionable findings. State the affected path or component, the concrete failure mode, its impact, and the smallest safe correction. Distinguish blocking defects from follow-up improvements and questions.
+
+## Project-specific rules
+
+Add language, domain, compliance, performance, and ownership-specific checks here when they are known. Keep rules concise, testable, and scoped to the code they govern.

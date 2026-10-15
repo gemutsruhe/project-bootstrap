@@ -2,8 +2,11 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { GUIDE_POLICY_SCHEMA_VERSION, listGuidePolicies, normalizeGuideDecisions } from "./guide-policies.js";
 
-export const PLUGIN_VERSION = "0.2.8";
+export { listGuidePolicies } from "./guide-policies.js";
+
+export const PLUGIN_VERSION = "0.5.0";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v2.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -22,7 +25,7 @@ const IGNORED_DIRECTORIES = new Set([
 const TOOL_DEFINITIONS = [
   {
     name: "inspect_workspace",
-    description: "Read a local workspace inventory plus a redacted summary of applicable Codex and Project Bootstrap preferences without changing files. Raw configuration values are never returned. Set PROJECT_BOOTSTRAP_ALLOWED_ROOT to restrict readable workspace paths.",
+    description: "Read a local workspace inventory plus a redacted summary of applicable Codex and Project Bootstrap preferences without changing files. Raw configuration values are never returned. Set PROJECT_BOOTSTRAP_ALLOWED_ROOT to restrict readable workspace paths; otherwise the response reports that the host did not provide a boundary.",
     inputSchema: {
       type: "object",
       properties: {
@@ -131,14 +134,47 @@ const TOOL_DEFINITIONS = [
     }
   },
   {
+    name: "list_workspace_guide_policies",
+    description: "List the versioned, read-only policy profiles and allowed fields for the planned workspace-guide bundle. Use these exact IDs when collecting guide decisions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        locale: { type: "string", enum: ["en", "ko"], default: "en" }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true }
+  },
+  {
     name: "create_plan",
-    description: "Produce a read-only local bootstrap plan, including supported runtime scaffold commands. A blocked selection produces no writable plan.",
+    description: "Produce a read-only local bootstrap plan, including a source-grounded AGENTS.md blueprint, supported runtime scaffold commands, and reviewed workspace-guide decisions. A blocked selection produces no writable plan.",
     inputSchema: {
       type: "object",
       properties: {
         selectedIds: { type: "array", minItems: 1, items: { type: "string" } },
         projectName: { type: "string", minLength: 1, maxLength: 80, description: "Name used by a supported runtime scaffold, such as a Flutter package name." },
         requirements: { type: "object" },
+        guideDecisions: {
+          type: "object",
+          description: "User-confirmed settings for AGENTS.md, ARCHITECTURE.md, TEAM_GUIDE.md, PLANS.md, CODE_REVIEW.md, and the pull-request template. This is planning data only and never authorizes writes.",
+          properties: {
+            agents: { type: "object" },
+            architecture: { type: "object" },
+            team: { type: "object" },
+            plans: { type: "object" },
+            codeReview: { type: "object" },
+            pullRequest: { type: "object" }
+          },
+          additionalProperties: false
+        },
+        workspaceSettings: {
+          type: "object",
+          description: "Reviewed workspace-wide settings. GitHub-specific files are considered only when collaborationHost is github. Existing Codex configuration is always preserved and is never rewritten by this plugin.",
+          properties: {
+            collaborationHost: { type: "string", enum: ["none", "github", "gitlab", "other", "existing"] }
+          },
+          additionalProperties: false
+        },
         inventory: { type: "object" },
         locale: { type: "string", enum: ["en", "ko"], default: "en" }
       },
@@ -369,6 +405,292 @@ function resolveWorkspaceRoot(root) {
   return resolved;
 }
 
+function workspaceAccessScope() {
+  const allowedRoot = process.env.PROJECT_BOOTSTRAP_ALLOWED_ROOT?.trim();
+  return allowedRoot
+    ? { mode: "restricted", allowedRoot: path.resolve(allowedRoot) }
+    : {
+        mode: "host-boundary-not-configured",
+        message: "Set PROJECT_BOOTSTRAP_ALLOWED_ROOT to the trusted workspace root to restrict inspection paths."
+      };
+}
+
+const PULL_REQUEST_TEMPLATE_PATHS = new Set([
+  "pull_request_template.md",
+  "docs/pull_request_template.md",
+  ".github/pull_request_template.md"
+]);
+
+function configurationInventory(files) {
+  const normalized = asList(files);
+  const pullRequestTemplates = normalized.filter((file) =>
+    PULL_REQUEST_TEMPLATE_PATHS.has(file) || file.startsWith(".github/PULL_REQUEST_TEMPLATE/")
+  );
+  return {
+    rootAgents: normalized.filter((file) => file === "AGENTS.md" || file === "AGENTS.override.md"),
+    nestedAgents: normalized.filter((file) => /.+\/(?:AGENTS|AGENTS\.override)\.md$/.test(file)),
+    codexConfigs: normalized.filter((file) => /(?:^|\/)\.codex\/config\.toml$/.test(file)),
+    pullRequestTemplates,
+    codeowners: normalized.filter((file) => ["CODEOWNERS", "docs/CODEOWNERS", ".github/CODEOWNERS"].includes(file)),
+    contributorGuides: normalized.filter((file) => ["CONTRIBUTING.md", "docs/CONTRIBUTING.md"].includes(file))
+  };
+}
+
+const SOURCE_ROOT_NAMES = ["src", "app", "apps", "packages", "lib", "server", "client", "backend", "frontend", "web", "mobile"];
+const TEST_ROOT_NAMES = ["test", "tests", "__tests__", "spec", "specs", "e2e", "integration"];
+const DOCUMENTATION_ROOT_NAMES = ["docs", "doc", "documentation", "examples"];
+const MANIFEST_NAMES = new Set([
+  "package.json",
+  "pyproject.toml",
+  "go.mod",
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
+  "pubspec.yaml",
+  "global.json"
+]);
+const LOCKFILE_NAMES = new Set([
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+  "poetry.lock",
+  "uv.lock",
+  "Pipfile.lock",
+  "packages.lock.json"
+]);
+
+function presentRepositoryRoots(files, names) {
+  const knownNames = new Set(names);
+  const roots = new Set();
+  for (const file of asList(files)) {
+    const segments = file.split("/");
+    segments.pop();
+    for (let index = 0; index < segments.length; index += 1) {
+      if (knownNames.has(segments[index])) roots.add(`${segments.slice(0, index + 1).join("/")}/`);
+    }
+  }
+  return [...roots].sort();
+}
+
+function nodeScriptRunner(manifest, files) {
+  const packageManager = String(manifest?.packageManager || "").toLowerCase();
+  if (packageManager.startsWith("pnpm@") || asList(files).includes("pnpm-lock.yaml")) return "pnpm run";
+  if (packageManager.startsWith("yarn@") || asList(files).includes("yarn.lock")) return "yarn";
+  if (packageManager.startsWith("bun@") || asList(files).some((file) => file === "bun.lock" || file === "bun.lockb")) return "bun run";
+  return "npm run";
+}
+
+function declaredNodeVerificationCommands(packageJson, files, manifestPath = "package.json") {
+  if (!packageJson) return [];
+  let manifest;
+  try {
+    manifest = JSON.parse(packageJson);
+  } catch {
+    return [];
+  }
+  if (!manifest.scripts || typeof manifest.scripts !== "object" || Array.isArray(manifest.scripts)) return [];
+
+  const runner = nodeScriptRunner(manifest, files);
+  const kinds = [
+    [/^test(?::[a-z0-9:_-]+)?$/i, "test"],
+    [/^(?:lint|eslint)(?::[a-z0-9:_-]+)?$/i, "lint"],
+    [/^(?:typecheck|type-check|tsc)(?::[a-z0-9:_-]+)?$/i, "typecheck"],
+    [/^(?:check|verify)(?::[a-z0-9:_-]+)?$/i, "verification"],
+    [/^(?:format:check|prettier:check)$/i, "format-check"],
+    [/^build(?::[a-z0-9:_-]+)?$/i, "build"]
+  ];
+
+  return Object.keys(manifest.scripts)
+    .sort()
+    .filter((name) => /^[a-z0-9:_-]+$/i.test(name))
+    .map((name) => ({ name, kind: kinds.find(([pattern]) => pattern.test(name))?.[1] }))
+    .filter(({ kind }) => Boolean(kind))
+    .map(({ name, kind }) => ({
+      command: `${runner} ${name}`,
+      kind,
+      source: `${manifestPath}#scripts.${name}`,
+      workingDirectory: path.posix.dirname(manifestPath) === "." ? "workspace root" : `${path.posix.dirname(manifestPath)}/`,
+      evidence: "declared-script-name"
+    }));
+}
+
+function generatedFileHints(files) {
+  return asList(files).filter((file) =>
+    /(?:^|\/)(?:generated|gen)\//i.test(file)
+    || /(?:\.generated\.|\.g\.|\.designer\.|\.freezed\.dart$)/i.test(file)
+    || file === "next-env.d.ts"
+  );
+}
+
+/**
+ * Produce a redacted, local-only evidence model for an AGENTS.md. It deliberately
+ * keeps manifest command bodies out of the result: a script name is enough to
+ * provide a safe command invocation without copying arbitrary shell text into an
+ * instruction file.
+ */
+export function createAgentGuideEvidence(files, { packageJson, packageManifests = [] } = {}) {
+  const normalized = [...new Set(asList(files))].sort();
+  const configuration = configurationInventory(normalized);
+  const sourceRoots = presentRepositoryRoots(normalized, SOURCE_ROOT_NAMES);
+  const testRoots = presentRepositoryRoots(normalized, TEST_ROOT_NAMES);
+  const documentationRoots = presentRepositoryRoots(normalized, DOCUMENTATION_ROOT_NAMES);
+  const manifestPaths = normalized.filter((file) => MANIFEST_NAMES.has(path.posix.basename(file)) || file.endsWith(".csproj"));
+  const lockfiles = normalized.filter((file) => LOCKFILE_NAMES.has(path.posix.basename(file)));
+  const nodeManifests = packageManifests.length
+    ? packageManifests
+    : packageJson ? [{ path: "package.json", content: packageJson }] : [];
+  const commands = nodeManifests.flatMap(({ path: manifestPath, content }) =>
+    declaredNodeVerificationCommands(content, normalized, manifestPath)
+  );
+  const missing = [];
+  if (!sourceRoots.length) missing.push("source-roots");
+  if (!commands.length) missing.push("declared-verification-commands");
+
+  return {
+    schemaVersion: 1,
+    source: "local-workspace-inventory",
+    repositoryMap: {
+      sourceRoots,
+      testRoots,
+      documentationRoots,
+      manifestPaths,
+      existingGuidePaths: [...configuration.rootAgents, ...configuration.nestedAgents]
+    },
+    verification: {
+      commands,
+      policy: "Only declared package-script names are emitted; script bodies and unverified commands are omitted."
+    },
+    boundaries: {
+      lockfiles,
+      generatedFileHints: generatedFileHints(normalized)
+    },
+    missing,
+    privacy: "Derived only from local paths and manifest metadata. Source contents, environment values, and script bodies are not included."
+  };
+}
+
+function markdownPathList(paths, label) {
+  return paths.length ? `- ${label}: ${paths.map((entry) => `\`${entry}\``).join(", ")}` : "";
+}
+
+function commandPurpose(kind) {
+  return {
+    test: "run the declared test check",
+    lint: "run the declared lint check",
+    typecheck: "run the declared type check",
+    verification: "run the declared verification check",
+    "format-check": "run the declared formatting check",
+    build: "run the declared build check"
+  }[kind] || "run a declared project check";
+}
+
+function codingConventionLines(agentsDecision = {}) {
+  const codingStyle = agentsDecision.codingStyle || "existing-patterns";
+  const functionDesign = agentsDecision.functionDesign || "single-responsibility";
+  const commentStyle = agentsDecision.commentStyle || "why-and-invariants";
+  const lines = [];
+
+  if (codingStyle === "modular-boundaries") {
+    lines.push("- Keep public module contracts narrow. Place domain decisions behind the selected architecture's module boundaries, and keep framework or transport code at adapters.");
+  } else if (codingStyle === "functional-core") {
+    lines.push("- Prefer a functional core for domain decisions: keep calculations deterministic and immutable where practical, and keep I/O, framework calls, and mutation at explicit boundaries.");
+  } else if (codingStyle === "custom" && agentsDecision.comment) {
+    lines.push(`- Project-specific coding policy: ${agentsDecision.comment}`);
+  } else {
+    lines.push("- Follow the closest established local pattern before introducing a new one. Where no local precedent exists, use the selected language and framework's idiomatic conventions.");
+  }
+
+  if (functionDesign === "separate-effects") {
+    lines.push("- Separate orchestration and side effects from domain logic. Keep database, network, filesystem, process, and UI-state effects behind focused boundaries.");
+  } else if (functionDesign === "custom" && agentsDecision.comment && codingStyle !== "custom") {
+    lines.push(`- Project-specific function-design policy: ${agentsDecision.comment}`);
+  } else {
+    lines.push("- Give each function one clear responsibility and a consistent level of abstraction. Split mixed calculation, I/O, state-change, and rendering concerns when that makes the contract clearer; do not split only to reduce line count.");
+  }
+
+  if (commentStyle === "minimal") {
+    lines.push("- Prefer clear names and small interfaces to explanatory comments. Keep comments only for non-obvious context that code cannot express.");
+  } else if (commentStyle === "custom" && agentsDecision.comment && codingStyle !== "custom" && functionDesign !== "custom") {
+    lines.push(`- Project-specific comment policy: ${agentsDecision.comment}`);
+  } else {
+    lines.push("- Write comments for rationale, constraints, and non-obvious invariants; do not restate implementation mechanics that the code already makes clear.");
+  }
+
+  return lines;
+}
+
+/**
+ * Turn inventory evidence into reviewed template values. This is a preview only;
+ * the Skill still requires an exact file-plan approval before it renders AGENTS.md.
+ */
+export function createAgentsGuideBlueprint(inventory = {}, agentsDecision = {}) {
+  const evidence = inventory.agentGuideEvidence || createAgentGuideEvidence(inventory.files || []);
+  const map = evidence.repositoryMap;
+  const mapLines = [
+    markdownPathList(map.sourceRoots, "Source areas"),
+    markdownPathList(map.testRoots, "Test areas"),
+    markdownPathList(map.documentationRoots, "Documentation and examples"),
+    markdownPathList(map.manifestPaths, "Build and dependency manifests")
+  ].filter(Boolean);
+  if (!mapLines.length) {
+    mapLines.push("- No conventional source, test, documentation, or manifest path was detected. Confirm the repository map before adding project-specific instructions.");
+  }
+
+  const verificationLines = evidence.verification.commands.map(({ command, kind, source, workingDirectory }) =>
+    `- \`${command}\` from \`${workingDirectory}\` — ${commandPurpose(kind)} (declared by \`${source}\`).`
+  );
+  if (!verificationLines.length) {
+    verificationLines.push("- No declared verification command was detected. Ask for the repository's approved command before adding or running one.");
+  }
+
+  const boundaryLines = [];
+  if (evidence.boundaries.lockfiles.length) {
+    boundaryLines.push(`- Treat ${evidence.boundaries.lockfiles.map((file) => `\`${file}\``).join(", ")} as package-manager-owned lockfiles; update them only through an approved dependency command.`);
+  }
+  if (evidence.boundaries.generatedFileHints.length) {
+    boundaryLines.push(`- The inventory found generated-file hints: ${evidence.boundaries.generatedFileHints.map((file) => `\`${file}\``).join(", ")}. Confirm the owning generator before editing these paths.`);
+  }
+  if (!boundaryLines.length) {
+    boundaryLines.push("- No lockfile or generated-file hint was detected. Do not declare generated-code ownership without local evidence.");
+  }
+
+  const candidateScopes = [...new Set([...map.sourceRoots, ...map.testRoots])];
+  const localGuidance = agentsDecision.localScope === "nested-where-needed"
+    ? `- Keep this guide as the shared root policy. Do not generate nested \`AGENTS.md\` files until an area has genuinely different rules; likely review candidates are ${candidateScopes.length ? candidateScopes.map((candidate) => `\`${candidate}\``).join(", ") : "not yet detected"}.`
+    : "- Keep guidance at the repository root. Add a nested `AGENTS.md` only after a project-specific rule differs from this guide; do not duplicate root instructions.";
+
+  const reviewRules = [
+    "- Add a project-specific review rule only for a confirmed, consequential, non-obvious invariant. State its scope, the invariant to preserve, and the smallest safe path.",
+    "- Keep formatting and other mechanical checks in declared tooling or CI. Do not turn them into broad AGENTS.md review rules.",
+    "- Keep public contracts and data boundaries backward-compatible unless a reviewed decision explicitly approves a change."
+  ];
+
+  return {
+    schemaVersion: 2,
+    source: evidence.source,
+    status: evidence.missing.length ? "needs-confirmation" : "grounded",
+    evidence,
+    templateValues: {
+      repositoryMap: mapLines.join("\n"),
+      verificationCommands: verificationLines.join("\n"),
+      boundaries: boundaryLines.join("\n"),
+      localGuidance,
+      codingConventions: codingConventionLines(agentsDecision).join("\n"),
+      reviewRules: reviewRules.join("\n")
+    },
+    review: {
+      required: true,
+      message: "Review the detected paths and declared command names. Correct or confirm them before approving AGENTS.md generation.",
+      missingEvidence: evidence.missing
+    }
+  };
+}
+
 async function readTextIfExists(file, limit = 128_000) {
   try {
     const content = await fs.readFile(file, "utf8");
@@ -384,6 +706,19 @@ function parseTomlScalar(value) {
     return withoutComment.slice(1, -1);
   }
   return withoutComment;
+}
+
+function detectNodeLanguage(packageJson, files) {
+  if (!packageJson) return undefined;
+  const hasTypeScriptSource = files.some((file) => /\.(?:ts|tsx|mts|cts)$/.test(file));
+  try {
+    const manifest = JSON.parse(packageJson);
+    const dependencies = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies };
+    if (hasTypeScriptSource || Object.hasOwn(dependencies, "typescript")) return "typescript";
+  } catch {
+    if (hasTypeScriptSource) return "typescript";
+  }
+  return "javascript";
 }
 
 export function parseProjectBootstrapConfig(toml) {
@@ -444,7 +779,8 @@ export async function inspectCodexSettings(workspace, { globalConfigPath, localC
     effective: {
       locale: effectiveBootstrapSetting(project, user, "locale")
     },
-    precedence: "project-over-user"
+    precedence: "legacy-project-bootstrap-table: project-over-user",
+    note: "Only the legacy [project_bootstrap] locale is inspected. Native Codex settings are preserved and not interpreted by this plugin."
   };
 }
 
@@ -516,7 +852,13 @@ export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300, glo
   }
 
   const fileSet = new Set(files);
+  const workspaceConfiguration = configurationInventory(files);
   const packageJson = await readTextIfExists(path.join(workspace, "package.json"));
+  const packageManifestPaths = files.filter((file) => file === "package.json" || file.endsWith("/package.json"));
+  const packageManifests = await Promise.all(packageManifestPaths.slice(0, 100).map(async (relativePath) => ({
+    path: relativePath,
+    content: await readTextIfExists(path.join(workspace, relativePath))
+  })));
   const pyproject = await readTextIfExists(path.join(workspace, "pyproject.toml"));
   const goMod = await readTextIfExists(path.join(workspace, "go.mod"));
   const pom = await readTextIfExists(path.join(workspace, "pom.xml"));
@@ -525,7 +867,8 @@ export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300, glo
   const pubspec = await readTextIfExists(path.join(workspace, "pubspec.yaml"));
 
   const languages = [];
-  if (packageJson) languages.push("typescript");
+  const nodeLanguage = detectNodeLanguage(packageJson, files);
+  if (nodeLanguage) languages.push(nodeLanguage);
   if (pyproject || files.some((file) => file.endsWith(".py"))) languages.push("python");
   if (goMod || files.some((file) => file.endsWith(".go"))) languages.push("go");
   const hasJava = files.some((file) => file.endsWith(".java"));
@@ -542,9 +885,11 @@ export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300, glo
   });
   const programmingLanguageDecision = determineProgrammingLanguageDecision(languages);
   const responseLocaleDecision = determineResponseLocaleDecision(codexSettings);
+  const agentGuideEvidence = createAgentGuideEvidence(files, { packageJson, packageManifests });
 
   return {
     root: workspace,
+    accessScope: workspaceAccessScope(),
     state: files.length === 0 ? "new" : "existing",
     files,
     fileCount: files.length,
@@ -568,6 +913,8 @@ export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300, glo
       ".project-bootstrap/selection.yaml",
       "docs/project-bootstrap/decision-record.md"
     ].filter((artifact) => fileSet.has(artifact)),
+    configuration: workspaceConfiguration,
+    agentGuideEvidence,
     detected: {
       docker: fileSet.has("Dockerfile") || fileSet.has("docker-compose.yml") || fileSet.has("compose.yaml"),
       githubActions: files.some((file) => file.startsWith(".github/workflows/")),
@@ -732,13 +1079,19 @@ const COMMON_ARTIFACTS = [
   ["docs/project-bootstrap/decision-record.md", "decision-record"],
   ["docs/project-bootstrap/validation-report.md", "validation-report"],
   ["docs/project-bootstrap/execution-plan.md", "execution-plan"],
+  ["ARCHITECTURE.md", "architecture-guide"],
   ["docs/architecture/overview.md", "architecture-overview"],
   ["AGENTS.md", "codex-instructions"],
-  [".codex/config.toml", "codex-project-config"],
-  [".env.example", "environment-contract"],
-  ["docker-compose.yml", "local-container-orchestration"],
-  [".github/workflows/ci.yml", "ci-workflow"]
+  ["TEAM_GUIDE.md", "team-guide"],
+  ["PLANS.md", "planning-guide"],
+  ["CODE_REVIEW.md", "code-review-guide"],
+  [".env.example", "environment-contract"]
 ];
+
+const DELIVERY_ARTIFACTS = {
+  "delivery.docker-compose": [["docker-compose.yml", "local-container-orchestration"]],
+  "delivery.github-actions": [[".github/workflows/ci.yml", "ci-workflow"]]
+};
 
 const ADAPTER_ARTIFACTS = {
   "language.typescript": [["tsconfig.json", "typescript-compiler-config"], ["docs/architecture/interfaces/typescript.md", "typescript-interface-contract"]],
@@ -804,28 +1157,115 @@ function planRuntimeScaffolds(selectedIds, inventory, projectName) {
   }];
 }
 
-export function createPlan(entries, { selectedIds, projectName, requirements = {}, inventory = {}, locale = "en" } = {}) {
+const COLLABORATION_HOSTS = new Set(["none", "github", "gitlab", "other", "existing"]);
+
+function normalizeWorkspaceSettings(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { collaborationHost: "none" };
+  const keys = Object.keys(value);
+  if (keys.some((key) => key !== "collaborationHost")) throw new Error("Unknown workspaceSettings field.");
+  const collaborationHost = value.collaborationHost ?? "none";
+  if (!COLLABORATION_HOSTS.has(collaborationHost)) throw new Error("Invalid workspaceSettings.collaborationHost.");
+  return { collaborationHost };
+}
+
+function workspaceConfigurationReview(inventory, workspaceSettings, guideDecisions) {
+  const configuration = inventory.configuration || configurationInventory(inventory.files);
+  const hostedRequirements = [];
+  if (workspaceSettings.collaborationHost === "github") {
+    hostedRequirements.push({
+      setting: "branch-protection-or-ruleset",
+      operation: "manual",
+      message: "GitHub branch protection, required reviews, and status checks are host settings; this plugin does not change them."
+    });
+  }
+  if (guideDecisions.team?.ownershipSource === "codeowners") {
+    hostedRequirements.push({
+      setting: "CODEOWNERS",
+      operation: "manual",
+      existingPaths: asList(configuration.codeowners),
+      message: "Formal ownership needs a user-supplied CODEOWNERS policy and, on GitHub, a branch protection or ruleset requirement."
+    });
+  }
+  return {
+    pluginState: {
+      path: ".project-bootstrap/selection.yaml",
+      ownership: "project-bootstrap"
+    },
+    codexProjectConfig: {
+      operation: "preserve",
+      existingPaths: configuration.codexConfigs,
+      message: "This plugin does not create or rewrite .codex/config.toml. Native Codex settings remain under the user's and trusted project's configuration layers."
+    },
+    collaborationHost: workspaceSettings.collaborationHost,
+    existing: configuration,
+    hostedRequirements
+  };
+}
+
+function artifactOperation(file, template, inventory) {
+  const files = new Set(asList(inventory.files));
+  if (files.has(file)) return { path: file, template, operation: "conflict", approvalRequired: true };
+
+  if (file === ".github/pull_request_template.md") {
+    const existingTemplates = asList((inventory.configuration || configurationInventory(inventory.files)).pullRequestTemplates)
+      .filter((path) => path !== file);
+    if (existingTemplates.length) {
+      return {
+        path: file,
+        template,
+        operation: "merge-preview",
+        relatedPaths: existingTemplates,
+        approvalRequired: true,
+        message: "An existing pull-request template uses another supported GitHub location. Review a path-specific merge or replacement; no file write is planned."
+      };
+    }
+  }
+  return { path: file, template, operation: "create", approvalRequired: true };
+}
+
+function blockedPlan(validation, message) {
+  return {
+    status: "blocked",
+    validation,
+    artifacts: [],
+    commands: [],
+    message
+  };
+}
+
+export function createPlan(entries, { selectedIds, projectName, requirements = {}, guideDecisions = {}, workspaceSettings = {}, inventory = {}, locale = "en" } = {}) {
   const validation = validateSelection(entries, { selectedIds, requirements, inventory, locale });
   if (validation.status === "block") {
-    return {
-      status: "blocked",
-      validation,
-      artifacts: [],
-      commands: [],
-      message: "Resolve blocking rules before requesting a writable plan."
+    return blockedPlan(validation, "Resolve blocking rules before requesting a writable plan.");
+  }
+  if (inventory.truncated) {
+    const completeInventoryValidation = {
+      ...validation,
+      status: "block",
+      messages: [...validation.messages, {
+        status: "block",
+        code: "incomplete-workspace-inventory",
+        message: "The workspace inventory is truncated. Re-inspect with enough depth and file capacity before planning file changes."
+      }]
     };
+    return blockedPlan(completeInventoryValidation, "A complete workspace inventory is required before planning local configuration changes.");
   }
 
-  const knownFiles = new Set(asList(inventory.files));
+  const normalizedWorkspaceSettings = normalizeWorkspaceSettings(workspaceSettings);
+  const normalizedGuideDecisions = normalizeGuideDecisions(guideDecisions, {
+    allowPullRequest: normalizedWorkspaceSettings.collaborationHost === "github"
+  });
+  const agentsGuide = createAgentsGuideBlueprint(inventory, normalizedGuideDecisions.agents);
   const artifacts = [...COMMON_ARTIFACTS];
-  for (const id of selectedIds) artifacts.push(...(ADAPTER_ARTIFACTS[id] || []));
+  for (const id of selectedIds) {
+    artifacts.push(...(ADAPTER_ARTIFACTS[id] || []));
+    artifacts.push(...(DELIVERY_ARTIFACTS[id] || []));
+  }
+  if (normalizedWorkspaceSettings.collaborationHost === "github" && normalizedGuideDecisions.pullRequest) {
+    artifacts.push([".github/pull_request_template.md", "pull-request-template"]);
+  }
   const deduplicated = new Map(artifacts.map(([file, template]) => [file, template]));
-  const plans = [...deduplicated].map(([file, template]) => ({
-    path: file,
-    template,
-    operation: knownFiles.has(file) ? "conflict" : "create",
-    approvalRequired: true
-  }));
+  const plans = [...deduplicated].map(([file, template]) => artifactOperation(file, template, inventory));
   const scaffolds = planRuntimeScaffolds(selectedIds, inventory, projectName || requirements.projectName);
   const scaffoldCommands = scaffolds
     .filter((scaffold) => scaffold.operation === "generate")
@@ -838,10 +1278,16 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
       approvalRequired
     }));
 
+  const requiresReview = validation.status === "warning" || plans.some((plan) => plan.operation === "merge-preview");
   return {
-    status: validation.status === "warning" ? "ready-with-warnings" : "ready",
+    status: requiresReview ? "ready-with-warnings" : "ready",
     validation,
     selectedIds: [...new Set(selectedIds)],
+    guidePolicySchemaVersion: GUIDE_POLICY_SCHEMA_VERSION,
+    guideDecisions: normalizedGuideDecisions,
+    agentsGuide,
+    workspaceSettings: normalizedWorkspaceSettings,
+    configurationReview: workspaceConfigurationReview(inventory, normalizedWorkspaceSettings, normalizedGuideDecisions),
     artifacts: plans,
     scaffolds,
     commands: scaffoldCommands.length ? scaffoldCommands : [
@@ -853,7 +1299,8 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
     ],
     safeguards: [
       "No filesystem writes are performed by this MCP tool.",
-      "Conflicting existing files require a path-specific decision.",
+      "Conflicting or merge-preview files require a path-specific decision.",
+      "Existing .codex/config.toml files are preserved and never rewritten by this plugin.",
       "Dependency installation, runtime scaffolding commands, and Git operations require separate approval."
     ]
   };
@@ -895,9 +1342,10 @@ export function checkUpdates({ installedVersion = PLUGIN_VERSION, availableVersi
 }
 
 export async function invokeTool(name, args = {}) {
-  const catalog = name === "inspect_workspace" || name === "check_updates" ? undefined : await loadCatalog();
+  const catalog = ["inspect_workspace", "list_workspace_guide_policies", "check_updates"].includes(name) ? undefined : await loadCatalog();
   switch (name) {
     case "inspect_workspace": return inspectWorkspace(args);
+    case "list_workspace_guide_policies": return { schemaVersion: GUIDE_POLICY_SCHEMA_VERSION, guides: listGuidePolicies(args) };
     case "list_catalog": return listCatalog(catalog, args);
     case "render_catalog_explorer": return createCatalogExplorer(catalog, args);
     case "submit_catalog_selection": return submitCatalogSelection(catalog, args);

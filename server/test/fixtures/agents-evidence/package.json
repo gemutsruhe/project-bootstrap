@@ -1,0 +1,11 @@
+{
+  "name": "agents-evidence-fixture",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "test": "vitest run --coverage",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  }
+}

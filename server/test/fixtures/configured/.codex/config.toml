@@ -1,0 +1,2 @@
+# Existing native Codex project configuration must remain untouched.
+approval_policy = "on-request"

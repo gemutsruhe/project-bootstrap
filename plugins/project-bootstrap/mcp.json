@@ -7,7 +7,10 @@
       "args": [
         "${PLUGIN_ROOT}/server/dist/index.js"
       ],
-      "cwd": "${PLUGIN_ROOT}"
+      "cwd": "${PLUGIN_ROOT}",
+      "env_vars": [
+        "PROJECT_BOOTSTRAP_ALLOWED_ROOT"
+      ]
     }
   }
 }

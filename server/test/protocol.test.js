@@ -17,13 +17,25 @@ test("MCP initialize exposes a tool-capable local server", async () => {
 test("MCP lists read-only planning tools and the Catalog Explorer UI tool", async () => {
   const result = await handleRequest({ jsonrpc: "2.0", id: 2, method: "tools/list" });
   const names = result.result.tools.map((tool) => tool.name);
-  assert.deepEqual(names, ["inspect_workspace", "list_catalog", "render_catalog_explorer", "submit_catalog_selection", "recommend", "validate_selection", "create_plan", "check_updates"]);
+  assert.deepEqual(names, ["inspect_workspace", "list_catalog", "render_catalog_explorer", "submit_catalog_selection", "recommend", "validate_selection", "list_workspace_guide_policies", "create_plan", "check_updates"]);
   const explorer = result.result.tools.find((tool) => tool.name === "render_catalog_explorer");
   assert.equal(explorer._meta.ui.resourceUri, "ui://project-bootstrap/catalog-explorer-v2.html");
   assert.equal(explorer.annotations.readOnlyHint, true);
   const submit = result.result.tools.find((tool) => tool.name === "submit_catalog_selection");
   assert.equal(submit.annotations.readOnlyHint, true);
   assert.deepEqual(submit._meta.ui.visibility, ["model", "app"]);
+});
+
+test("MCP exposes the versioned workspace-guide policy catalogue without writes", async () => {
+  const result = await handleRequest({
+    jsonrpc: "2.0",
+    id: 25,
+    method: "tools/call",
+    params: { name: "list_workspace_guide_policies", arguments: { locale: "ko" } }
+  });
+  assert.equal(result.result.isError, false);
+  assert.equal(result.result.structuredContent.schemaVersion, 2);
+  assert.equal(result.result.structuredContent.guides.find((guide) => guide.key === "agents").profiles[0].id, "contextual");
 });
 
 test("MCP exposes the Catalog Explorer as a local MCP Apps resource", async () => {
