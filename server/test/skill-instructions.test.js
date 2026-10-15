@@ -19,9 +19,12 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /numbered Markdown list ending in `Other — describe your situation`/);
   assert.match(skill, /never approval to write files or run commands/);
   assert.ok(
-    skill.indexOf("Question-and-answer language and existing stack.") < skill.indexOf("Product or service goal and starting profile."),
-    "response-language handling must precede the product profile"
+    skill.indexOf("Question-and-answer language and existing stack.") < skill.indexOf("Product or service form."),
+    "response-language handling must precede the product form"
   );
+  assert.match(skill, /Delivery target stage: mockup, MVP, or production foundation/);
+  assert.match(skill, /For an MVP or production foundation, ask only the next needed operational constraint/);
+  assert.match(skill, /For a mockup, skip these questions/);
   assert.match(skill, /responseLocaleDecision\.action/);
   assert.match(skill, /programmingLanguageDecision\.action/);
   assert.match(skill, /Korean, English, or Other/);

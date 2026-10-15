@@ -6,7 +6,7 @@ import { GUIDE_POLICY_SCHEMA_VERSION, listGuidePolicies, normalizeGuideDecisions
 
 export { listGuidePolicies } from "./guide-policies.js";
 
-export const PLUGIN_VERSION = "0.5.0";
+export const PLUGIN_VERSION = "0.6.0";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v2.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +102,7 @@ const TOOL_DEFINITIONS = [
           type: "object",
           properties: {
             productType: { type: "string" },
+            targetStage: { type: "string", enum: ["mockup", "mvp", "production"], description: "The current delivery target: an interactive mockup, an MVP for early users, or a production foundation." },
             teamSize: { type: "integer", minimum: 1 },
             budgetSensitivity: { type: "string", enum: ["low", "medium", "high"] },
             operationsPreference: { type: "string", enum: ["low", "balanced", "high-control"] },
@@ -933,6 +934,11 @@ function profileScore(profile, requirements = {}, inventory = {}) {
   if (requirements.productType && tags.includes(requirements.productType)) {
     score += 35;
     reasons.push({ kind: "product-type", points: 35, detail: `Matches ${requirements.productType}` });
+  }
+  const stages = asList(profile.attributes.stages);
+  if (requirements.targetStage && stages.includes(requirements.targetStage)) {
+    score += 25;
+    reasons.push({ kind: "target-stage", points: 25, detail: `Matches ${requirements.targetStage} target` });
   }
   if (requirements.operationsPreference === "low" && tags.includes("low-ops")) {
     score += 15;

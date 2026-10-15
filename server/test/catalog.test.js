@@ -28,10 +28,11 @@ test("parses flat YAML frontmatter with locale fields and lists", () => {
   assert.equal(parsed.body, "Body\n");
 });
 
-test("catalogue has the five required profiles and Korean fallback data", () => {
+test("catalogue has the six required profiles and Korean fallback data", () => {
   const profiles = listCatalog(catalog, { kind: "profile", locale: "ko" });
-  assert.equal(profiles.length, 5);
+  assert.equal(profiles.length, 6);
   assert.ok(profiles.some((profile) => profile.id === "profile.web-fullstack" && /웹/.test(profile.label)));
+  assert.ok(profiles.some((profile) => profile.id === "profile.interactive-mockup" && /목업/.test(profile.label)));
   assert.ok(profiles.every((profile) => profile.path.endsWith(".md")));
   assert.ok(catalog.length >= 30);
 });
@@ -74,7 +75,8 @@ test("each supported starting profile produces a non-writing review plan", () =>
     "profile.api-service",
     "profile.mobile-app",
     "profile.data-ai",
-    "profile.multi-service-platform"
+    "profile.multi-service-platform",
+    "profile.interactive-mockup"
   ];
   for (const id of profileIds) {
     const plan = createPlan(catalog, { selectedIds: [id], inventory: { files: [] } });
@@ -195,11 +197,21 @@ test("a truncated inventory blocks all file planning", () => {
 
 test("recommendation remains explainable and preserves explicit preference", () => {
   const results = recommend(catalog, {
-    requirements: { productType: "web", teamSize: 2, operationsPreference: "low", preferredIds: ["profile.web-fullstack"] },
+    requirements: { productType: "web", targetStage: "mvp", teamSize: 2, operationsPreference: "low", preferredIds: ["profile.web-fullstack"] },
     inventory: { languages: ["typescript"] }
   });
   assert.equal(results[0].id, "profile.web-fullstack");
   assert.ok(results[0].reasons.some((reason) => reason.kind === "explicit-preference"));
+  assert.ok(results[0].reasons.some((reason) => reason.kind === "target-stage"));
+});
+
+test("an interactive mockup target prioritizes the mockup profile for a web product", () => {
+  const results = recommend(catalog, {
+    requirements: { productType: "web", targetStage: "mockup" },
+    inventory: { languages: ["typescript"] }
+  });
+  assert.equal(results[0].id, "profile.interactive-mockup");
+  assert.ok(results[0].reasons.some((reason) => reason.kind === "target-stage"));
 });
 
 test("validation blocks missing requirements and incompatible pairs", () => {

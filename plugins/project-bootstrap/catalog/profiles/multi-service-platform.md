@@ -6,6 +6,7 @@ title_ko: 다중 서비스 플랫폼
 summary_en: A platform with explicit service ownership, asynchronous boundaries, observability, and delivery coordination.
 summary_ko: 명시적인 서비스 소유권, 비동기 경계, 관측성 및 배포 조정을 갖춘 플랫폼입니다.
 tags: [platform, high-scale, high-control]
+stages: [production]
 languages: [typescript, python, java, kotlin, go, dotnet]
 base_score: 55
 suggests: [architecture.microservices, repository.monorepo, language.go, service.go-http, data.postgresql, messaging.nats, delivery.docker-compose, delivery.github-actions, security.oidc, testing.contract, observability.opentelemetry]

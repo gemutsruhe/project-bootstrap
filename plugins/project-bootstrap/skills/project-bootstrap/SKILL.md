@@ -27,11 +27,13 @@ Use the bundled `project-bootstrap` MCP server to keep selection, validation, an
       - When `programmingLanguageDecision.action` is `preserve-detected`, record every detected programming language as a fixed planning constraint. Do not ask the user to choose or replace it.
       - When no programming language is detected, defer that technical choice to the selected project profile and its catalogue-backed runtime options; do not use the question-and-answer language as a runtime signal.
       - Codex itself applies general user and project settings. Preserve those settings automatically by leaving their files untouched; this Skill only consumes a legacy safe `[project_bootstrap]` response locale when one already exists. Never create that table; record new Project Bootstrap choices in `.project-bootstrap/selection.yaml`.
-   2. Product or service goal and starting profile.
-   3. Team size, expected traffic, and operations preference.
-   4. Budget sensitivity and regulatory or security requirements.
-   5. Do not ask for product features, user workflows, acceptance criteria, or implementation details. The product goal is only a profile-recommendation input; this workflow generates a base project setup rather than product functionality.
-   6. Do not ask for the display locale again; it was decided as the first question-and-answer language step.
+   2. Product or service form.
+   3. Delivery target stage: mockup, MVP, or production foundation. Record it as `targetStage`; it is a profile-recommendation input, not authorization to create product functionality.
+   4. Starting profile. Recommend profiles using the product form, target stage, and detected stack before the user selects or overrides one.
+   5. For an MVP or production foundation, ask only the next needed operational constraint: team size, expected traffic, or operations preference. For a mockup, skip these questions unless the user's answer makes one necessary.
+   6. Budget sensitivity and regulatory or security requirements.
+   7. Do not ask for product features, user workflows, acceptance criteria, or implementation details. The product form and target stage are only profile-recommendation inputs; this workflow generates a base project setup rather than product functionality.
+   8. Do not ask for the display locale again; it was decided as the first question-and-answer language step.
 5. Call `list_catalog` and `recommend` after enough context is available. Render the ranked, explainable starting profiles in the Catalog Explorer before presenting the structured choice (or text fallback), and let the user select or comment with an override. When an explorer selection arrives, apply that exact ID as the user override for its current decision before progressing to another question; do not rerank it away or replace it silently. A profile may be overridden one decision at a time; never silently select a technology.
 6. Call `validate_selection`. Explain every warning or block with the referenced catalogue IDs and alternatives. If a choice is blocked, ask a replacement question; do not create an implementation plan while blocked rules remain unresolved.
 7. After catalogue selections are valid and before creating the file plan, configure the planned workspace-guide bundle. Call `list_workspace_guide_policies` and read [workspace-guide-interview.md](references/workspace-guide-interview.md) at this point. When configuring `AGENTS.md`, also read [agents-authoring.md](references/agents-authoring.md). The MCP tool is the authoritative list of profile IDs, defaults, and allowed fields; do not invent values.
