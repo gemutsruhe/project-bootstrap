@@ -34,7 +34,7 @@ test("MCP exposes the versioned workspace-guide policy catalogue without writes"
     params: { name: "list_workspace_guide_policies", arguments: { locale: "ko" } }
   });
   assert.equal(result.result.isError, false);
-  assert.equal(result.result.structuredContent.schemaVersion, 2);
+  assert.equal(result.result.structuredContent.schemaVersion, 4);
   assert.equal(result.result.structuredContent.guides.find((guide) => guide.key === "agents").profiles[0].id, "contextual");
 });
 

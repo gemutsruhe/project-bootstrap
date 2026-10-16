@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   checkUpdates,
   createAgentsGuideBlueprint,
+  createAgentGuideEvidence,
   createCatalogExplorer,
   createPlan,
   determineProgrammingLanguageDecision,
@@ -115,7 +116,9 @@ test("guide policy catalogue has localized, versioned defaults", () => {
   assert.equal(agents.profiles[0].id, "contextual");
   assert.match(agents.profiles[0].label, /상황별/);
   assert.equal(agents.profiles[0].defaults.localScope, "root-only");
+  assert.equal(agents.profiles[0].defaults.documentStructure, "auto");
   assert.equal(agents.profiles[0].defaults.codingStyle, "existing-patterns");
+  assert.ok(agents.fields.documentStructure.includes("sdk-ai"));
   assert.ok(agents.fields.functionDesign.includes("separate-effects"));
 });
 
@@ -132,11 +135,11 @@ test("plans normalize reviewed workspace-guide decisions against the policy cata
   });
 
   assert.deepEqual(plan.guideDecisions, {
-    agents: { profile: "strict-governance", routing: "relevant-guide-and-plan", verification: "affected-checks", localScope: "root-only", codingStyle: "modular-boundaries", functionDesign: "separate-effects", commentStyle: "why-and-invariants" },
+    agents: { profile: "strict-governance", routing: "relevant-guide-and-plan", verification: "affected-checks", localScope: "root-only", documentStructure: "auto", codingStyle: "modular-boundaries", functionDesign: "separate-effects", commentStyle: "why-and-invariants" },
     plans: { profile: "significant-change", trigger: "significant-change", detail: "scope-and-tests", lifecycle: "update-while-implementing" },
     pullRequest: { profile: "standard", issueLinks: "optional", checklist: "none" }
   });
-  assert.equal(plan.guidePolicySchemaVersion, 2);
+  assert.equal(plan.guidePolicySchemaVersion, 4);
   assert.equal(plan.artifacts.find((artifact) => artifact.path === ".github/pull_request_template.md").operation, "create");
 });
 
@@ -256,7 +259,8 @@ test("a new Flutter selection plans the standard Flutter SDK scaffold separately
     projectName: "My Starter App",
     inventory: { files: [] }
   });
-  assert.equal(plan.status, "ready");
+  assert.equal(plan.status, "ready-with-warnings");
+  assert.equal(plan.agentsGuide.status, "needs-confirmation");
   assert.equal(plan.scaffolds[0].runtime, "flutter");
   assert.equal(plan.scaffolds[0].operation, "generate");
   assert.equal(plan.commands[0].command, "flutter create --no-pub --project-name my_starter_app .");
@@ -267,13 +271,68 @@ test("a new Flutter selection plans the standard Flutter SDK scaffold separately
 });
 
 test("an existing Flutter scaffold is preserved without a flutter create command", () => {
+  const files = ["pubspec.yaml", "lib/main.dart", "android/app/build.gradle.kts"];
   const plan = createPlan(catalog, {
     selectedIds: ["language.flutter"],
     projectName: "existing_app",
-    inventory: { files: ["pubspec.yaml", "lib/main.dart", "android/app/build.gradle.kts"] }
+    inventory: { files, agentGuideEvidence: createAgentGuideEvidence(files, { pubspec: "dependencies:\n  flutter:\n    sdk: flutter\n" }) }
   });
   assert.equal(plan.scaffolds[0].operation, "not-needed");
   assert.equal(plan.commands[0].command, "No command is scheduled by default.");
+});
+
+test("a new Expo selection plans a root scaffold before bootstrap artifacts", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["profile.mobile-app", "language.typescript", "mobile.expo"],
+    projectName: "My Expo App",
+    inventory: { files: [] }
+  });
+  const scaffold = plan.scaffolds.find((candidate) => candidate.runtime === "expo");
+
+  assert.equal(plan.status, "ready-with-warnings");
+  assert.equal(scaffold.operation, "generate");
+  assert.equal(scaffold.scaffoldPath, ".");
+  assert.equal(plan.commands[0].command, "npx create-expo-app@latest . --template default --no-agents-md --yes");
+  assert.match(plan.commands[0].networkEffect, /Downloads/);
+  assert.ok(plan.commands[0].expectedPaths.includes("src/app/_layout.tsx"));
+  assert.equal(plan.runtimeSetup.artifactWritePhase, "post-runtime-scaffold");
+  assert.equal(plan.runtimeSetup.reinspectionRequired, true);
+  assert.equal(plan.artifacts.some((artifact) => artifact.path === "tsconfig.json"), false);
+  assert.ok(plan.artifacts.every((artifact) => artifact.operation !== "create" || artifact.phase === "post-runtime-scaffold"));
+});
+
+test("an existing Expo scaffold is preserved and its generated TypeScript configuration is not replaced", () => {
+  const files = ["package.json", "app.json", "tsconfig.json", "src/app/_layout.tsx"];
+  const plan = createPlan(catalog, {
+    selectedIds: ["profile.mobile-app", "language.typescript", "mobile.expo"],
+    inventory: { files, agentGuideEvidence: createAgentGuideEvidence(files, { packageJson: JSON.stringify({ dependencies: { expo: "*" }, scripts: { lint: "expo lint" } }) }) }
+  });
+  const scaffold = plan.scaffolds.find((candidate) => candidate.runtime === "expo");
+
+  assert.equal(scaffold.operation, "not-needed");
+  assert.equal(plan.commands[0].command, "No command is scheduled by default.");
+  assert.equal(plan.artifacts.some((artifact) => artifact.path === "tsconfig.json"), false);
+  assert.equal(plan.runtimeSetup.reinspectionRequired, false);
+});
+
+test("a populated workspace cannot silently become a nested Expo project", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["profile.mobile-app", "language.typescript", "mobile.expo"],
+    inventory: { files: ["AGENTS.md"] }
+  });
+  const scaffold = plan.scaffolds.find((candidate) => candidate.runtime === "expo");
+
+  assert.equal(scaffold.operation, "requires-empty-workspace");
+  assert.match(scaffold.reason, /(implicit apps|nested Git)/);
+  assert.equal(plan.commands[0].command, "No command is scheduled by default.");
+});
+
+test("mobile runtime alternatives cannot be selected together", () => {
+  const result = validateSelection(catalog, {
+    selectedIds: ["language.typescript", "language.flutter", "mobile.expo", "mobile.flutter"]
+  });
+  assert.equal(result.status, "block");
+  assert.ok(result.messages.some((message) => message.code === "conflict"));
 });
 
 test("plans mark existing paths as conflicts and do not schedule commands", () => {
@@ -281,7 +340,7 @@ test("plans mark existing paths as conflicts and do not schedule commands", () =
     selectedIds: ["language.typescript", "delivery.github-actions"],
     inventory: { files: ["AGENTS.md", ".github/workflows/ci.yml"] }
   });
-  assert.equal(plan.status, "ready");
+  assert.equal(plan.status, "ready-with-warnings");
   assert.equal(plan.artifacts.find((artifact) => artifact.path === "AGENTS.md").operation, "conflict");
   assert.equal(plan.artifacts.find((artifact) => artifact.path === ".github/workflows/ci.yml").operation, "conflict");
   assert.equal(plan.commands[0].command, "No command is scheduled by default.");
@@ -357,6 +416,68 @@ test("AGENTS guide evidence is grounded in local paths and declared script names
   });
   assert.equal(plan.agentsGuide.status, "grounded");
   assert.equal(plan.agentsGuide.review.required, true);
+});
+
+test("AGENTS guidance preserves discovered local instructions and reports unavailable checks", () => {
+  const files = ["package.json", "src/index.ts", "packages/api/AGENTS.md"];
+  const evidence = createAgentGuideEvidence(files, {
+    packageJson: JSON.stringify({ scripts: { test: "node --test" } })
+  });
+  const blueprint = createAgentsGuideBlueprint({ agentGuideEvidence: evidence }, { localScope: "nested-where-needed" });
+
+  assert.match(blueprint.templateValues.localGuidance, /`packages\/api\/AGENTS\.md`/);
+  assert.match(blueprint.templateValues.localGuidance, /must remain a conflict rather than be overwritten/);
+  assert.match(blueprint.templateValues.localGuidance, /Do not generate nested AGENTS\.md files/);
+  assert.match(blueprint.templateValues.verificationCommands, /`npm run test`/);
+});
+
+test("Flutter SDK declarations provide bounded standard verification commands", () => {
+  const files = ["pubspec.yaml", "pubspec.lock", "lib/main.dart", "test/widget_test.dart"];
+  const flutterPubspec = [
+    "name: mobile_console",
+    "environment:",
+    "  sdk: ^3.6.0",
+    "dependencies:",
+    "  flutter:",
+    "    sdk: flutter"
+  ].join("\n");
+  const evidence = createAgentGuideEvidence(files, { pubspec: flutterPubspec });
+  assert.deepEqual(evidence.verification.commands.map((entry) => entry.command), ["flutter analyze", "flutter test"]);
+  assert.deepEqual(evidence.verification.commands.map((entry) => entry.source), [
+    "pubspec.yaml#dependencies.flutter",
+    "pubspec.yaml#dependencies.flutter"
+  ]);
+  assert.deepEqual(evidence.boundaries.lockfiles, ["pubspec.lock"]);
+
+  const blueprint = createAgentsGuideBlueprint({ agentGuideEvidence: evidence, files }, {}, { selectedIds: ["profile.mobile-app", "language.flutter"] });
+  assert.equal(blueprint.documentStructure.effective, "multi-surface");
+  assert.match(blueprint.templateValues.verificationCommands, /Flutter static analysis/);
+
+  const dartOnly = createAgentGuideEvidence(files, { pubspec: "name: command_line_tool\nenvironment:\n  sdk: ^3.6.0\n" });
+  assert.equal(dartOnly.verification.commands.length, 0);
+});
+
+test("AGENTS document shape is selected from reviewed project evidence and may be overridden", () => {
+  const inventory = {
+    files: ["package.json", "apps/web/src/index.ts", "packages/api/package.json", "src/client.generated.ts"],
+    agentGuideEvidence: createAgentGuideEvidence(
+      ["package.json", "apps/web/src/index.ts", "packages/api/package.json", "src/client.generated.ts"],
+      { packageManifests: [
+        { path: "package.json", content: JSON.stringify({ scripts: { test: "node --test" } }) },
+        { path: "packages/api/package.json", content: JSON.stringify({ scripts: { test: "node --test" } }) }
+      ] }
+    )
+  };
+  const automatic = createAgentsGuideBlueprint(inventory, {}, { selectedIds: ["profile.data-ai", "ai.rag"] });
+  assert.equal(automatic.documentStructure.effective, "sdk-ai");
+  assert.match(automatic.templateValues.documentModel, /SDK \/ AI contract guide/);
+  assert.match(automatic.templateValues.operationalBoundaries, /model output, tool output, MCP responses/);
+  assert.match(automatic.templateValues.boundaries, /`src\/client\.generated\.ts`/);
+  assert.ok(automatic.templateValues.generatedSync);
+
+  const explicit = createAgentsGuideBlueprint(inventory, { documentStructure: "service-mcp" }, { selectedIds: ["profile.data-ai"] });
+  assert.equal(explicit.documentStructure.effective, "service-mcp");
+  assert.match(explicit.templateValues.taskRouting, /interface, transport, authentication/);
 });
 
 test("Codex setting inspection uses project preferences before user preferences without exposing raw config", async () => {

@@ -3,10 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GUIDE_POLICY_SCHEMA_VERSION, listGuidePolicies, normalizeGuideDecisions } from "./guide-policies.js";
+import { createAgentGuideEvidence, isAgentMetadataPath } from "./agent-evidence.js";
+import { createAgentsGuideBlueprint } from "./agents-guide.js";
 
 export { listGuidePolicies } from "./guide-policies.js";
+export { createAgentGuideEvidence } from "./agent-evidence.js";
+export { createAgentsGuideBlueprint } from "./agents-guide.js";
 
-export const PLUGIN_VERSION = "0.6.0";
+export const PLUGIN_VERSION = "0.6.1";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v2.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -19,7 +23,9 @@ const IGNORED_DIRECTORIES = new Set([
   "coverage",
   "dist",
   "node_modules",
-  "target"
+  "target", "out", "bin", "obj", ".dart_tool", ".gradle", ".terraform",
+  ".pytest_cache", ".mypy_cache", ".ruff_cache", "__pycache__", "venv",
+  ".swiftpm", ".build", "Pods", ".expo"
 ]);
 
 const TOOL_DEFINITIONS = [
@@ -153,7 +159,7 @@ const TOOL_DEFINITIONS = [
       type: "object",
       properties: {
         selectedIds: { type: "array", minItems: 1, items: { type: "string" } },
-        projectName: { type: "string", minLength: 1, maxLength: 80, description: "Name used by a supported runtime scaffold, such as a Flutter package name." },
+        projectName: { type: "string", minLength: 1, maxLength: 80, description: "Name used by a supported runtime scaffold. New single-runtime projects are scaffolded at the workspace root." },
         requirements: { type: "object" },
         guideDecisions: {
           type: "object",
@@ -170,7 +176,7 @@ const TOOL_DEFINITIONS = [
         },
         workspaceSettings: {
           type: "object",
-          description: "Reviewed workspace-wide settings. GitHub-specific files are considered only when collaborationHost is github. Existing Codex configuration is always preserved and is never rewritten by this plugin.",
+          description: "Reviewed workspace-wide settings. GitHub-specific files are considered only when collaborationHost is github. Existing Codex configuration is always preserved and is never rewritten by this plugin. New runtime scaffolds target an empty workspace root; an existing multi-app layout must be inspected and planned separately.",
           properties: {
             collaborationHost: { type: "string", enum: ["none", "github", "gitlab", "other", "existing"] }
           },
@@ -437,269 +443,7 @@ function configurationInventory(files) {
   };
 }
 
-const SOURCE_ROOT_NAMES = ["src", "app", "apps", "packages", "lib", "server", "client", "backend", "frontend", "web", "mobile"];
-const TEST_ROOT_NAMES = ["test", "tests", "__tests__", "spec", "specs", "e2e", "integration"];
-const DOCUMENTATION_ROOT_NAMES = ["docs", "doc", "documentation", "examples"];
-const MANIFEST_NAMES = new Set([
-  "package.json",
-  "pyproject.toml",
-  "go.mod",
-  "pom.xml",
-  "build.gradle",
-  "build.gradle.kts",
-  "settings.gradle",
-  "settings.gradle.kts",
-  "pubspec.yaml",
-  "global.json"
-]);
-const LOCKFILE_NAMES = new Set([
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "pnpm-lock.yaml",
-  "yarn.lock",
-  "bun.lock",
-  "bun.lockb",
-  "poetry.lock",
-  "uv.lock",
-  "Pipfile.lock",
-  "packages.lock.json"
-]);
 
-function presentRepositoryRoots(files, names) {
-  const knownNames = new Set(names);
-  const roots = new Set();
-  for (const file of asList(files)) {
-    const segments = file.split("/");
-    segments.pop();
-    for (let index = 0; index < segments.length; index += 1) {
-      if (knownNames.has(segments[index])) roots.add(`${segments.slice(0, index + 1).join("/")}/`);
-    }
-  }
-  return [...roots].sort();
-}
-
-function nodeScriptRunner(manifest, files) {
-  const packageManager = String(manifest?.packageManager || "").toLowerCase();
-  if (packageManager.startsWith("pnpm@") || asList(files).includes("pnpm-lock.yaml")) return "pnpm run";
-  if (packageManager.startsWith("yarn@") || asList(files).includes("yarn.lock")) return "yarn";
-  if (packageManager.startsWith("bun@") || asList(files).some((file) => file === "bun.lock" || file === "bun.lockb")) return "bun run";
-  return "npm run";
-}
-
-function declaredNodeVerificationCommands(packageJson, files, manifestPath = "package.json") {
-  if (!packageJson) return [];
-  let manifest;
-  try {
-    manifest = JSON.parse(packageJson);
-  } catch {
-    return [];
-  }
-  if (!manifest.scripts || typeof manifest.scripts !== "object" || Array.isArray(manifest.scripts)) return [];
-
-  const runner = nodeScriptRunner(manifest, files);
-  const kinds = [
-    [/^test(?::[a-z0-9:_-]+)?$/i, "test"],
-    [/^(?:lint|eslint)(?::[a-z0-9:_-]+)?$/i, "lint"],
-    [/^(?:typecheck|type-check|tsc)(?::[a-z0-9:_-]+)?$/i, "typecheck"],
-    [/^(?:check|verify)(?::[a-z0-9:_-]+)?$/i, "verification"],
-    [/^(?:format:check|prettier:check)$/i, "format-check"],
-    [/^build(?::[a-z0-9:_-]+)?$/i, "build"]
-  ];
-
-  return Object.keys(manifest.scripts)
-    .sort()
-    .filter((name) => /^[a-z0-9:_-]+$/i.test(name))
-    .map((name) => ({ name, kind: kinds.find(([pattern]) => pattern.test(name))?.[1] }))
-    .filter(({ kind }) => Boolean(kind))
-    .map(({ name, kind }) => ({
-      command: `${runner} ${name}`,
-      kind,
-      source: `${manifestPath}#scripts.${name}`,
-      workingDirectory: path.posix.dirname(manifestPath) === "." ? "workspace root" : `${path.posix.dirname(manifestPath)}/`,
-      evidence: "declared-script-name"
-    }));
-}
-
-function generatedFileHints(files) {
-  return asList(files).filter((file) =>
-    /(?:^|\/)(?:generated|gen)\//i.test(file)
-    || /(?:\.generated\.|\.g\.|\.designer\.|\.freezed\.dart$)/i.test(file)
-    || file === "next-env.d.ts"
-  );
-}
-
-/**
- * Produce a redacted, local-only evidence model for an AGENTS.md. It deliberately
- * keeps manifest command bodies out of the result: a script name is enough to
- * provide a safe command invocation without copying arbitrary shell text into an
- * instruction file.
- */
-export function createAgentGuideEvidence(files, { packageJson, packageManifests = [] } = {}) {
-  const normalized = [...new Set(asList(files))].sort();
-  const configuration = configurationInventory(normalized);
-  const sourceRoots = presentRepositoryRoots(normalized, SOURCE_ROOT_NAMES);
-  const testRoots = presentRepositoryRoots(normalized, TEST_ROOT_NAMES);
-  const documentationRoots = presentRepositoryRoots(normalized, DOCUMENTATION_ROOT_NAMES);
-  const manifestPaths = normalized.filter((file) => MANIFEST_NAMES.has(path.posix.basename(file)) || file.endsWith(".csproj"));
-  const lockfiles = normalized.filter((file) => LOCKFILE_NAMES.has(path.posix.basename(file)));
-  const nodeManifests = packageManifests.length
-    ? packageManifests
-    : packageJson ? [{ path: "package.json", content: packageJson }] : [];
-  const commands = nodeManifests.flatMap(({ path: manifestPath, content }) =>
-    declaredNodeVerificationCommands(content, normalized, manifestPath)
-  );
-  const missing = [];
-  if (!sourceRoots.length) missing.push("source-roots");
-  if (!commands.length) missing.push("declared-verification-commands");
-
-  return {
-    schemaVersion: 1,
-    source: "local-workspace-inventory",
-    repositoryMap: {
-      sourceRoots,
-      testRoots,
-      documentationRoots,
-      manifestPaths,
-      existingGuidePaths: [...configuration.rootAgents, ...configuration.nestedAgents]
-    },
-    verification: {
-      commands,
-      policy: "Only declared package-script names are emitted; script bodies and unverified commands are omitted."
-    },
-    boundaries: {
-      lockfiles,
-      generatedFileHints: generatedFileHints(normalized)
-    },
-    missing,
-    privacy: "Derived only from local paths and manifest metadata. Source contents, environment values, and script bodies are not included."
-  };
-}
-
-function markdownPathList(paths, label) {
-  return paths.length ? `- ${label}: ${paths.map((entry) => `\`${entry}\``).join(", ")}` : "";
-}
-
-function commandPurpose(kind) {
-  return {
-    test: "run the declared test check",
-    lint: "run the declared lint check",
-    typecheck: "run the declared type check",
-    verification: "run the declared verification check",
-    "format-check": "run the declared formatting check",
-    build: "run the declared build check"
-  }[kind] || "run a declared project check";
-}
-
-function codingConventionLines(agentsDecision = {}) {
-  const codingStyle = agentsDecision.codingStyle || "existing-patterns";
-  const functionDesign = agentsDecision.functionDesign || "single-responsibility";
-  const commentStyle = agentsDecision.commentStyle || "why-and-invariants";
-  const lines = [];
-
-  if (codingStyle === "modular-boundaries") {
-    lines.push("- Keep public module contracts narrow. Place domain decisions behind the selected architecture's module boundaries, and keep framework or transport code at adapters.");
-  } else if (codingStyle === "functional-core") {
-    lines.push("- Prefer a functional core for domain decisions: keep calculations deterministic and immutable where practical, and keep I/O, framework calls, and mutation at explicit boundaries.");
-  } else if (codingStyle === "custom" && agentsDecision.comment) {
-    lines.push(`- Project-specific coding policy: ${agentsDecision.comment}`);
-  } else {
-    lines.push("- Follow the closest established local pattern before introducing a new one. Where no local precedent exists, use the selected language and framework's idiomatic conventions.");
-  }
-
-  if (functionDesign === "separate-effects") {
-    lines.push("- Separate orchestration and side effects from domain logic. Keep database, network, filesystem, process, and UI-state effects behind focused boundaries.");
-  } else if (functionDesign === "custom" && agentsDecision.comment && codingStyle !== "custom") {
-    lines.push(`- Project-specific function-design policy: ${agentsDecision.comment}`);
-  } else {
-    lines.push("- Give each function one clear responsibility and a consistent level of abstraction. Split mixed calculation, I/O, state-change, and rendering concerns when that makes the contract clearer; do not split only to reduce line count.");
-  }
-
-  if (commentStyle === "minimal") {
-    lines.push("- Prefer clear names and small interfaces to explanatory comments. Keep comments only for non-obvious context that code cannot express.");
-  } else if (commentStyle === "custom" && agentsDecision.comment && codingStyle !== "custom" && functionDesign !== "custom") {
-    lines.push(`- Project-specific comment policy: ${agentsDecision.comment}`);
-  } else {
-    lines.push("- Write comments for rationale, constraints, and non-obvious invariants; do not restate implementation mechanics that the code already makes clear.");
-  }
-
-  return lines;
-}
-
-/**
- * Turn inventory evidence into reviewed template values. This is a preview only;
- * the Skill still requires an exact file-plan approval before it renders AGENTS.md.
- */
-export function createAgentsGuideBlueprint(inventory = {}, agentsDecision = {}) {
-  const evidence = inventory.agentGuideEvidence || createAgentGuideEvidence(inventory.files || []);
-  const map = evidence.repositoryMap;
-  const mapLines = [
-    markdownPathList(map.sourceRoots, "Source areas"),
-    markdownPathList(map.testRoots, "Test areas"),
-    markdownPathList(map.documentationRoots, "Documentation and examples"),
-    markdownPathList(map.manifestPaths, "Build and dependency manifests")
-  ].filter(Boolean);
-  if (!mapLines.length) {
-    mapLines.push("- No conventional source, test, documentation, or manifest path was detected. Confirm the repository map before adding project-specific instructions.");
-  }
-
-  const verificationLines = evidence.verification.commands.map(({ command, kind, source, workingDirectory }) =>
-    `- \`${command}\` from \`${workingDirectory}\` — ${commandPurpose(kind)} (declared by \`${source}\`).`
-  );
-  if (!verificationLines.length) {
-    verificationLines.push("- No declared verification command was detected. Ask for the repository's approved command before adding or running one.");
-  }
-
-  const boundaryLines = [];
-  if (evidence.boundaries.lockfiles.length) {
-    boundaryLines.push(`- Treat ${evidence.boundaries.lockfiles.map((file) => `\`${file}\``).join(", ")} as package-manager-owned lockfiles; update them only through an approved dependency command.`);
-  }
-  if (evidence.boundaries.generatedFileHints.length) {
-    boundaryLines.push(`- The inventory found generated-file hints: ${evidence.boundaries.generatedFileHints.map((file) => `\`${file}\``).join(", ")}. Confirm the owning generator before editing these paths.`);
-  }
-  if (!boundaryLines.length) {
-    boundaryLines.push("- No lockfile or generated-file hint was detected. Do not declare generated-code ownership without local evidence.");
-  }
-
-  const candidateScopes = [...new Set([...map.sourceRoots, ...map.testRoots])];
-  const localGuidance = agentsDecision.localScope === "nested-where-needed"
-    ? `- Keep this guide as the shared root policy. Do not generate nested \`AGENTS.md\` files until an area has genuinely different rules; likely review candidates are ${candidateScopes.length ? candidateScopes.map((candidate) => `\`${candidate}\``).join(", ") : "not yet detected"}.`
-    : "- Keep guidance at the repository root. Add a nested `AGENTS.md` only after a project-specific rule differs from this guide; do not duplicate root instructions.";
-
-  const reviewRules = [
-    "- Add a project-specific review rule only for a confirmed, consequential, non-obvious invariant. State its scope, the invariant to preserve, and the smallest safe path.",
-    "- Keep formatting and other mechanical checks in declared tooling or CI. Do not turn them into broad AGENTS.md review rules.",
-    "- Keep public contracts and data boundaries backward-compatible unless a reviewed decision explicitly approves a change."
-  ];
-
-  return {
-    schemaVersion: 2,
-    source: evidence.source,
-    status: evidence.missing.length ? "needs-confirmation" : "grounded",
-    evidence,
-    templateValues: {
-      repositoryMap: mapLines.join("\n"),
-      verificationCommands: verificationLines.join("\n"),
-      boundaries: boundaryLines.join("\n"),
-      localGuidance,
-      codingConventions: codingConventionLines(agentsDecision).join("\n"),
-      reviewRules: reviewRules.join("\n")
-    },
-    review: {
-      required: true,
-      message: "Review the detected paths and declared command names. Correct or confirm them before approving AGENTS.md generation.",
-      missingEvidence: evidence.missing
-    }
-  };
-}
-
-async function readTextIfExists(file, limit = 128_000) {
-  try {
-    const content = await fs.readFile(file, "utf8");
-    return content.slice(0, limit);
-  } catch {
-    return undefined;
-  }
-}
 
 function parseTomlScalar(value) {
   const withoutComment = value.replace(/\s+#.*$/, "").trim();
@@ -709,18 +453,6 @@ function parseTomlScalar(value) {
   return withoutComment;
 }
 
-function detectNodeLanguage(packageJson, files) {
-  if (!packageJson) return undefined;
-  const hasTypeScriptSource = files.some((file) => /\.(?:ts|tsx|mts|cts)$/.test(file));
-  try {
-    const manifest = JSON.parse(packageJson);
-    const dependencies = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies };
-    if (hasTypeScriptSource || Object.hasOwn(dependencies, "typescript")) return "typescript";
-  } catch {
-    if (hasTypeScriptSource) return "typescript";
-  }
-  return "javascript";
-}
 
 export function parseProjectBootstrapConfig(toml) {
   const settings = {};
@@ -821,106 +553,81 @@ export function determineResponseLocaleDecision(codexSettings = {}) {
 export async function inspectWorkspace({ root, maxDepth = 5, maxFiles = 300, globalCodexConfigPath, localCodexConfigPath }) {
   const workspace = resolveWorkspaceRoot(root);
   const files = [];
+  const skippedDirectories = [];
   const truncated = { value: false };
 
   async function visit(directory, depth) {
-    if (depth > maxDepth || files.length >= maxFiles) {
-      truncated.value = true;
-      return;
-    }
+    if (depth > maxDepth || files.length >= maxFiles) { truncated.value = true; return; }
     const entries = await fs.readdir(directory, { withFileTypes: true });
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      if (files.length >= maxFiles) {
-        truncated.value = true;
-        return;
-      }
+      if (files.length >= maxFiles) { truncated.value = true; return; }
       if (entry.isSymbolicLink()) continue;
       const fullPath = path.join(directory, entry.name);
       const relative = path.relative(workspace, fullPath).replaceAll(path.sep, "/");
       if (entry.isDirectory()) {
-        if (!IGNORED_DIRECTORIES.has(entry.name)) await visit(fullPath, depth + 1);
-      } else if (entry.isFile()) {
-        files.push(relative);
-      }
+        if (IGNORED_DIRECTORIES.has(entry.name)) skippedDirectories.push(relative + "/");
+        else await visit(fullPath, depth + 1);
+      } else if (entry.isFile()) files.push(relative);
     }
   }
-
-  try {
-    await visit(workspace, 0);
-  } catch (error) {
+  try { await visit(workspace, 0); } catch (error) {
     if (error?.code === "ENOENT") throw new Error(`Workspace does not exist: ${workspace}`);
     throw error;
   }
 
+  // Every skipped/truncated metadata read is exposed separately from directory
+  // traversal completeness. No silent first-100-manifest cap.
+  const metadataPaths = files.filter(isAgentMetadataPath);
+  const collection = { complete: true, readCount: 0, total: metadataPaths.length, skipped: [], maxFileBytes: 128_000, maxTotalBytes: 4_000_000 };
+  const manifests = [];
+  let collectedBytes = 0;
+  for (const file of metadataPaths) {
+    if (collectedBytes >= collection.maxTotalBytes) {
+      collection.skipped.push({ path: file, reason: "metadata-total-limit" });
+      continue;
+    }
+    try {
+      const size = (await fs.stat(path.join(workspace, file))).size;
+      if (size > collection.maxFileBytes || collectedBytes + size > collection.maxTotalBytes) {
+        collection.skipped.push({ path: file, reason: "metadata-size-limit" });
+        continue;
+      }
+      const content = await fs.readFile(path.join(workspace, file), "utf8");
+      const bytes = Buffer.byteLength(content);
+      if (bytes > collection.maxFileBytes || collectedBytes + bytes > collection.maxTotalBytes) {
+        collection.skipped.push({ path: file, reason: "metadata-size-limit" });
+        continue;
+      }
+      manifests.push({ path: file, content });
+      collectedBytes += bytes;
+      collection.readCount += 1;
+    } catch { collection.skipped.push({ path: file, reason: "metadata-unreadable" }); }
+  }
+  collection.complete = collection.skipped.length === 0;
+  collection.bytesRead = collectedBytes;
   const fileSet = new Set(files);
-  const workspaceConfiguration = configurationInventory(files);
-  const packageJson = await readTextIfExists(path.join(workspace, "package.json"));
-  const packageManifestPaths = files.filter((file) => file === "package.json" || file.endsWith("/package.json"));
-  const packageManifests = await Promise.all(packageManifestPaths.slice(0, 100).map(async (relativePath) => ({
-    path: relativePath,
-    content: await readTextIfExists(path.join(workspace, relativePath))
-  })));
-  const pyproject = await readTextIfExists(path.join(workspace, "pyproject.toml"));
-  const goMod = await readTextIfExists(path.join(workspace, "go.mod"));
-  const pom = await readTextIfExists(path.join(workspace, "pom.xml"));
-  const gradle = await readTextIfExists(path.join(workspace, "build.gradle.kts"));
-  const csproj = files.find((file) => file.endsWith(".csproj"));
-  const pubspec = await readTextIfExists(path.join(workspace, "pubspec.yaml"));
-
-  const languages = [];
-  const nodeLanguage = detectNodeLanguage(packageJson, files);
-  if (nodeLanguage) languages.push(nodeLanguage);
-  if (pyproject || files.some((file) => file.endsWith(".py"))) languages.push("python");
-  if (goMod || files.some((file) => file.endsWith(".go"))) languages.push("go");
-  const hasJava = files.some((file) => file.endsWith(".java"));
-  const hasKotlin = files.some((file) => file.endsWith(".kt"));
-  if (hasJava) languages.push("java");
-  if (hasKotlin) languages.push("kotlin");
-  if ((pom || gradle) && !hasJava && !hasKotlin) languages.push("jvm");
-  if (csproj || files.some((file) => file.endsWith(".cs"))) languages.push("dotnet");
-  if (pubspec || files.some((file) => file.endsWith(".dart"))) languages.push("flutter");
-
-  const codexSettings = await inspectCodexSettings(workspace, {
-    globalConfigPath: globalCodexConfigPath,
-    localConfigPath: localCodexConfigPath
-  });
-  const programmingLanguageDecision = determineProgrammingLanguageDecision(languages);
-  const responseLocaleDecision = determineResponseLocaleDecision(codexSettings);
-  const agentGuideEvidence = createAgentGuideEvidence(files, { packageJson, packageManifests });
-
+  const agentGuideEvidence = createAgentGuideEvidence(files, { manifests, skippedDirectories, collection });
+  const languages = agentGuideEvidence.languages;
+  const codexSettings = await inspectCodexSettings(workspace, { globalConfigPath: globalCodexConfigPath, localConfigPath: localCodexConfigPath });
+  const areas = agentGuideEvidence.verification.areas;
+  const hasRuntime = (runtime) => areas.some((area) => area.runtime === runtime);
   return {
-    root: workspace,
-    accessScope: workspaceAccessScope(),
-    state: files.length === 0 ? "new" : "existing",
-    files,
-    fileCount: files.length,
-    truncated: truncated.value,
-    languages,
-    codexSettings,
-    programmingLanguageDecision,
-    responseLocaleDecision,
+    root: workspace, accessScope: workspaceAccessScope(), state: files.length === 0 ? "new" : "existing",
+    files, fileCount: files.length, truncated: truncated.value, skippedDirectories, languages, codexSettings,
+    programmingLanguageDecision: determineProgrammingLanguageDecision(languages),
+    responseLocaleDecision: determineResponseLocaleDecision(codexSettings),
     manifests: {
-      packageJson: Boolean(packageJson),
-      pyproject: Boolean(pyproject),
-      goMod: Boolean(goMod),
-      maven: Boolean(pom),
-      gradle: Boolean(gradle),
-      dotnet: Boolean(csproj),
-      flutter: Boolean(pubspec)
+      packageJson: hasRuntime("node"), pyproject: files.some((file) => path.posix.basename(file) === "pyproject.toml"),
+      goMod: hasRuntime("go"), maven: hasRuntime("maven"), gradle: hasRuntime("gradle"), dotnet: hasRuntime("dotnet"),
+      flutter: hasRuntime("flutter"), dart: hasRuntime("dart"), rust: hasRuntime("rust"), swift: hasRuntime("swift"), terraform: hasRuntime("terraform")
     },
-    existingBootstrapArtifacts: [
-      "AGENTS.md",
-      ".codex/config.toml",
-      ".project-bootstrap/selection.yaml",
-      "docs/project-bootstrap/decision-record.md"
-    ].filter((artifact) => fileSet.has(artifact)),
-    configuration: workspaceConfiguration,
-    agentGuideEvidence,
+    existingBootstrapArtifacts: ["AGENTS.md", ".codex/config.toml", ".project-bootstrap/selection.yaml", "docs/project-bootstrap/decision-record.md"].filter((artifact) => fileSet.has(artifact)),
+    configuration: configurationInventory(files), agentGuideEvidence,
     detected: {
       docker: fileSet.has("Dockerfile") || fileSet.has("docker-compose.yml") || fileSet.has("compose.yaml"),
       githubActions: files.some((file) => file.startsWith(".github/workflows/")),
       kubernetes: files.some((file) => file.startsWith("k8s/") || file.startsWith("kubernetes/")),
-      terraform: files.some((file) => file.endsWith(".tf"))
+      terraform: hasRuntime("terraform")
     }
   };
 }
@@ -1076,6 +783,19 @@ export function validateSelection(entries, { selectedIds, requirements = {}, inv
     });
   }
 
+  const selectedLanguages = selected.filter((id) => id.startsWith("language.")).map((id) => id.slice("language.".length));
+  const existingLanguages = asList(inventory.languages);
+  if (inventory.state === "existing" && selectedLanguages.length && requirements.runtimeChangeApproved !== true) {
+    const omitted = existingLanguages.filter((language) => {
+      if (selectedLanguages.includes(language)) return false;
+      if (language === "javascript" && selectedLanguages.includes("typescript")) return false;
+      if (language === "jvm" && selectedLanguages.some((entry) => ["java", "kotlin"].includes(entry))) return false;
+      if (existingLanguages.includes("flutter") && selectedLanguages.includes("flutter") && ["java", "kotlin", "swift"].includes(language)) return false;
+      return true;
+    });
+    if (omitted.length) messages.push({ status: "warning", code: "existing-runtime-review", existingLanguages: omitted,
+      message: `The workspace already uses ${omitted.join(", ")}. Preserve those runtimes; explicitly review an additional-runtime or migration decision before changing their setup.` });
+  }
   if (!messages.length) messages.push({ status: "pass", code: "validated", message: "The selected catalogue rules passed." });
   return { status: statusSummary(messages), selectedIds: selected, messages };
 }
@@ -1109,6 +829,25 @@ const ADAPTER_ARTIFACTS = {
   "language.flutter": [["docs/architecture/interfaces/flutter.md", "flutter-interface-contract"]]
 };
 
+function plannedAdapterArtifacts(selectedIds, inventory = {}) {
+  const selected = new Set(selectedIds);
+  const expoOwnsTypeScriptConfig = selected.has("mobile.expo");
+  const artifacts = [];
+  for (const id of selected) {
+    for (const [file, template] of ADAPTER_ARTIFACTS[id] || []) {
+      // create-expo-app owns the generated tsconfig and its Expo base extension.
+      // Writing a generic root configuration first makes a later root scaffold fail
+      // or leaves two conflicting TypeScript baselines.
+      if (expoOwnsTypeScriptConfig && file === "tsconfig.json") continue;
+      // Existing Maven/Groovy builds own their configuration; selecting a JVM
+      // language does not select a replacement build system.
+      if (file === "build.gradle.kts" && asList(inventory.files).some((entry) => /(^|\/)(pom\.xml|build\.gradle)$/.test(entry))) continue;
+      artifacts.push([file, template]);
+    }
+  }
+  return artifacts;
+}
+
 const FLUTTER_STANDARD_PATHS = [
   "pubspec.yaml",
   "analysis_options.yaml",
@@ -1122,6 +861,15 @@ const FLUTTER_STANDARD_PATHS = [
   "linux/"
 ];
 
+const EXPO_STANDARD_PATHS = [
+  "package.json",
+  "app.json",
+  "tsconfig.json",
+  "src/app/_layout.tsx",
+  "src/app/index.tsx",
+  ".gitignore"
+];
+
 function normalizeFlutterProjectName(value) {
   let normalized = String(value || "app")
     .trim()
@@ -1133,34 +881,92 @@ function normalizeFlutterProjectName(value) {
   return normalized.slice(0, 80).replace(/_+$/g, "") || "app";
 }
 
+function workspaceFiles(inventory) {
+  return new Set(asList(inventory.files));
+}
+
+
 function planRuntimeScaffolds(selectedIds, inventory, projectName) {
   const selected = new Set(selectedIds);
-  const files = new Set(asList(inventory.files));
-  if (!selected.has("language.flutter")) return [];
+  const files = workspaceFiles(inventory);
+  const scaffolds = [];
 
-  const flutterAlreadyExists = ["pubspec.yaml", "lib/main.dart", "android/"]
-    .some((entry) => files.has(entry) || files.has(entry.replace(/\/$/, "")) || [...files].some((file) => file.startsWith(entry)));
-  if (flutterAlreadyExists) {
-    return [{
-      runtime: "flutter",
-      operation: "not-needed",
-      reason: "A Flutter project scaffold is already present; preserve it and do not run flutter create.",
-      expectedPaths: FLUTTER_STANDARD_PATHS,
-      approvalRequired: true
-    }];
+  if (selected.has("language.flutter")) {
+    const flutterAlreadyExists = inventory.agentGuideEvidence?.verification?.areas?.some((area) => area.runtime === "flutter" && area.directory === ".") === true;
+    if (flutterAlreadyExists) {
+      scaffolds.push({
+        runtime: "flutter",
+        operation: "not-needed",
+        scaffoldPath: ".",
+        reason: "A Flutter project scaffold is already present; preserve it and do not run flutter create.",
+        expectedPaths: FLUTTER_STANDARD_PATHS,
+        approvalRequired: true
+      });
+    } else if (files.size > 0) {
+      scaffolds.push({
+        runtime: "flutter",
+        operation: "requires-empty-workspace",
+        scaffoldPath: ".",
+        reason: "The workspace contains files but no Flutter scaffold. Do not create a nested app or let flutter create merge with bootstrap artifacts; choose an empty workspace or plan an existing multi-app layout separately.",
+        expectedPaths: FLUTTER_STANDARD_PATHS,
+        approvalRequired: true
+      });
+    } else {
+      const normalizedName = normalizeFlutterProjectName(projectName);
+      scaffolds.push({
+        runtime: "flutter",
+        operation: "generate",
+        scaffoldPath: ".",
+        command: `flutter create --no-pub --project-name ${normalizedName} .`,
+        workingDirectory: "workspace root",
+        prerequisites: ["A locally installed Flutter SDK available on PATH."],
+        purpose: "Generate the standard Flutter project structure at the workspace root without fetching packages.",
+        expectedPaths: FLUTTER_STANDARD_PATHS,
+        networkEffect: "No dependency fetch is requested because --no-pub is used; the locally installed Flutter SDK supplies the templates.",
+        postScaffold: "Re-inspect the workspace and create a fresh artifact plan before writing bootstrap records or guides.",
+        approvalRequired: true
+      });
+    }
   }
 
-  const normalizedName = normalizeFlutterProjectName(projectName);
-  return [{
-    runtime: "flutter",
-    operation: "generate",
-    command: `flutter create --no-pub --project-name ${normalizedName} .`,
-    workingDirectory: "workspace root",
-    purpose: "Generate the standard Flutter project structure used by Flutter tooling and Android Studio without fetching packages.",
-    expectedPaths: FLUTTER_STANDARD_PATHS,
-    networkEffect: "No dependency fetch is requested because --no-pub is used; the locally installed Flutter SDK supplies the templates.",
-    approvalRequired: true
-  }];
+  if (selected.has("mobile.expo")) {
+    const expoAlreadyExists = inventory.agentGuideEvidence?.capabilities?.expo?.includes(".") === true;
+    if (expoAlreadyExists) {
+      scaffolds.push({
+        runtime: "expo",
+        operation: "not-needed",
+        scaffoldPath: ".",
+        reason: "An Expo project scaffold is already present; preserve its generated configuration and do not run create-expo-app.",
+        expectedPaths: EXPO_STANDARD_PATHS,
+        approvalRequired: true
+      });
+    } else if (files.size > 0) {
+      scaffolds.push({
+        runtime: "expo",
+        operation: "requires-empty-workspace",
+        scaffoldPath: ".",
+        reason: "The workspace contains files but no Expo scaffold. Do not create an implicit apps/<name> subproject or a nested Git repository; choose an empty workspace or plan an existing multi-app layout separately.",
+        expectedPaths: EXPO_STANDARD_PATHS,
+        approvalRequired: true
+      });
+    } else {
+      scaffolds.push({
+        runtime: "expo",
+        operation: "generate",
+        scaffoldPath: ".",
+        command: `npx create-expo-app@latest . --template default --no-agents-md --yes`,
+        workingDirectory: "workspace root",
+        prerequisites: ["Node.js LTS and npm are already installed and available on PATH."],
+        purpose: "Generate Expo Router, TypeScript, and the default iOS, Android, and web-ready project structure at the workspace root. create-expo-app derives the initial app name from that workspace directory.",
+        expectedPaths: EXPO_STANDARD_PATHS,
+        networkEffect: "Downloads the create-expo-app package, template, and npm dependencies. It may initialize Git when the workspace is not already a repository.",
+        postScaffold: "Re-inspect the workspace, use only declared package scripts for quality checks, and create a fresh artifact plan before writing bootstrap records or guides.",
+        approvalRequired: true
+      });
+    }
+  }
+
+  return scaffolds;
 }
 
 const COLLABORATION_HOSTS = new Set(["none", "github", "gitlab", "other", "existing"]);
@@ -1211,6 +1017,10 @@ function workspaceConfigurationReview(inventory, workspaceSettings, guideDecisio
 function artifactOperation(file, template, inventory) {
   const files = new Set(asList(inventory.files));
   if (files.has(file)) return { path: file, template, operation: "conflict", approvalRequired: true };
+  if (file === "AGENTS.md" && files.has("AGENTS.override.md")) {
+    return { path: file, template, operation: "merge-preview", relatedPaths: ["AGENTS.override.md"], approvalRequired: true,
+      message: "An existing AGENTS.override.md may shadow this guide. Review the active instruction file and its scope before creating AGENTS.md." };
+  }
 
   if (file === ".github/pull_request_template.md") {
     const existingTemplates = asList((inventory.configuration || configurationInventory(inventory.files)).pullRequestTemplates)
@@ -1244,14 +1054,14 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
   if (validation.status === "block") {
     return blockedPlan(validation, "Resolve blocking rules before requesting a writable plan.");
   }
-  if (inventory.truncated) {
+  if (inventory.truncated || inventory.agentGuideEvidence?.verification?.collection?.complete === false) {
     const completeInventoryValidation = {
       ...validation,
       status: "block",
       messages: [...validation.messages, {
         status: "block",
         code: "incomplete-workspace-inventory",
-        message: "The workspace inventory is truncated. Re-inspect with enough depth and file capacity before planning file changes."
+        message: "The workspace paths or manifest metadata are incomplete. Re-inspect the reported gaps before planning file changes."
       }]
     };
     return blockedPlan(completeInventoryValidation, "A complete workspace inventory is required before planning local configuration changes.");
@@ -1261,30 +1071,46 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
   const normalizedGuideDecisions = normalizeGuideDecisions(guideDecisions, {
     allowPullRequest: normalizedWorkspaceSettings.collaborationHost === "github"
   });
-  const agentsGuide = createAgentsGuideBlueprint(inventory, normalizedGuideDecisions.agents);
-  const artifacts = [...COMMON_ARTIFACTS];
+  const agentsGuide = createAgentsGuideBlueprint(inventory, normalizedGuideDecisions.agents, { selectedIds, locale, projectName: projectName || requirements.projectName || "Project", catalogVersion: PLUGIN_VERSION });
+  const scaffolds = planRuntimeScaffolds(selectedIds, inventory, projectName || requirements.projectName);
+  const scaffoldFirst = scaffolds.some((scaffold) => scaffold.operation === "generate" && scaffold.scaffoldPath === ".");
+  const artifacts = [...COMMON_ARTIFACTS, ...plannedAdapterArtifacts(selectedIds, inventory), ...agentsGuide.supportingDocuments.map((document) => [document.path, "agents-evidence"])];
   for (const id of selectedIds) {
-    artifacts.push(...(ADAPTER_ARTIFACTS[id] || []));
     artifacts.push(...(DELIVERY_ARTIFACTS[id] || []));
   }
   if (normalizedWorkspaceSettings.collaborationHost === "github" && normalizedGuideDecisions.pullRequest) {
     artifacts.push([".github/pull_request_template.md", "pull-request-template"]);
   }
   const deduplicated = new Map(artifacts.map(([file, template]) => [file, template]));
-  const plans = [...deduplicated].map(([file, template]) => artifactOperation(file, template, inventory));
-  const scaffolds = planRuntimeScaffolds(selectedIds, inventory, projectName || requirements.projectName);
+  const plans = [...deduplicated].map(([file, template]) => {
+    const plan = artifactOperation(file, template, inventory);
+    if (file === "AGENTS.md") plan.content = agentsGuide.markdown;
+    if (template === "agents-evidence") plan.content = agentsGuide.supportingDocuments.find((document) => document.path === file).content;
+    return scaffoldFirst && plan.operation === "create"
+      ? { ...plan, phase: "post-runtime-scaffold" }
+      : plan;
+  });
+  const detailConflicts = plans.filter((plan) => plan.template === "agents-evidence" && plan.operation !== "create");
+  const rootGuide = plans.find((plan) => plan.path === "AGENTS.md");
+  if (detailConflicts.length && rootGuide?.operation === "create") {
+    rootGuide.operation = "merge-preview";
+    rootGuide.relatedPaths = detailConflicts.map((plan) => plan.path);
+    rootGuide.message = "The generated guide depends on an existing evidence index. Review that content before creating a root guide that links to it.";
+  }
   const scaffoldCommands = scaffolds
     .filter((scaffold) => scaffold.operation === "generate")
-    .map(({ command, workingDirectory, purpose, expectedPaths, networkEffect, approvalRequired }) => ({
+    .map(({ command, workingDirectory, prerequisites, purpose, expectedPaths, networkEffect, postScaffold, approvalRequired }) => ({
       command,
       workingDirectory,
+      prerequisites,
       purpose,
       expectedPaths,
       networkEffect,
+      postScaffold,
       approvalRequired
     }));
 
-  const requiresReview = validation.status === "warning" || plans.some((plan) => plan.operation === "merge-preview");
+  const requiresReview = validation.status === "warning" || agentsGuide.status === "needs-confirmation" || plans.some((plan) => plan.operation === "merge-preview") || scaffolds.some((scaffold) => scaffold.operation === "requires-empty-workspace");
   return {
     status: requiresReview ? "ready-with-warnings" : "ready",
     validation,
@@ -1296,6 +1122,13 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
     configurationReview: workspaceConfigurationReview(inventory, normalizedWorkspaceSettings, normalizedGuideDecisions),
     artifacts: plans,
     scaffolds,
+    runtimeSetup: {
+      artifactWritePhase: scaffoldFirst ? "post-runtime-scaffold" : "ready",
+      reinspectionRequired: scaffoldFirst,
+      message: scaffoldFirst
+        ? "A root runtime scaffold must be approved and completed before bootstrap artifacts are written. Re-inspect and create a fresh plan after generation so guides use the real repository map and declared verification scripts."
+        : "No root runtime scaffold is pending before bootstrap artifact generation."
+    },
     commands: scaffoldCommands.length ? scaffoldCommands : [
       {
         command: "No command is scheduled by default.",

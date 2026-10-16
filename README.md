@@ -30,7 +30,9 @@ Install **Project Bootstrap** from the marketplace in Codex Desktop, then start 
 
 In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. It first identifies the product or service form, then the current delivery target: an interactive mockup, an MVP, or a production foundation. Team size, traffic, and operations questions are deferred until an MVP or production target needs them. Select an option or use **Other** to leave a comment; neither action authorizes any file change. For catalogue-backed candidates, the Catalog Explorer MCP UI displays the ranked candidate cards alongside their packaged source Markdown. Submitting an explorer candidate makes that ID the user’s choice for the current decision, retains unrelated earlier choices, then continues with validation or the next relevant candidates. It is an inline plugin view, not a host-native split tab. On hosts without structured Plan questions or MCP Apps UI, the same interview is presented as numbered choices with a free-text `Other` response and catalogue paths in the response.
 
-After the user approves the exact generated file plan, the Skill immediately renders and writes every approved non-conflicting bootstrap artifact: project records, architecture and interface drafts, and approved adapter configuration. The default workspace-guide bundle is `AGENTS.md`, `ARCHITECTURE.md`, `TEAM_GUIDE.md`, `PLANS.md`, and `CODE_REVIEW.md`; `AGENTS.md` links to the appropriate guide by task type, so routine changes do not need every document. Only `AGENTS.md` is a Codex instruction entry point; the other guide files are explicit repository conventions rather than independently auto-discovered Codex settings. Compose and CI files require their matching catalogue delivery option. A GitHub pull-request template additionally requires an explicit GitHub collaboration-host choice and a pull-request guide decision. The plugin never creates or rewrites `.codex/config.toml`. It also lists the standard runtime scaffold command, its expected output paths, and its side effects. For example, a new Flutter selection offers `flutter create --no-pub --project-name <project_name> .` to generate the standard files and platform directories created by Flutter tooling and Android Studio; it runs only after separate command approval. This workflow does not ask for or implement product-specific features. A file-plan approval still does not authorize dependency installation, generators, Git, cloud actions, external API calls, or any other command; those require a separate command approval.
+After the user approves the exact generated file plan, the Skill immediately renders and writes every approved non-conflicting bootstrap artifact: project records, architecture and interface drafts, and approved adapter configuration. The default workspace-guide bundle is `AGENTS.md`, `ARCHITECTURE.md`, `TEAM_GUIDE.md`, `PLANS.md`, and `CODE_REVIEW.md`; `AGENTS.md` links to the appropriate guide by task type, so routine changes do not need every document. Only `AGENTS.md` is a Codex instruction entry point; the other guide files are explicit repository conventions rather than independently auto-discovered Codex settings. Compose and CI files require their matching catalogue delivery option. A GitHub pull-request template additionally requires an explicit GitHub collaboration-host choice and a pull-request guide decision. The plugin never creates or rewrites `.codex/config.toml`.
+
+New root runtime scaffolds are a deliberate two-phase workflow. The plan first presents the separately approved generator command for an empty workspace root. Once it completes, the Skill re-inspects the real manifest, source roots, and declared scripts, then presents a fresh artifact plan. This prevents generators from colliding with bootstrap documents, creating an implicit nested app, or leaving guidance that describes a pre-scaffold workspace. For example, Flutter uses `flutter create --no-pub --project-name <project_name> .`, while Expo uses `npx create-expo-app@latest . --template default --no-agents-md --yes`. The Expo command downloads the generator, template, and dependencies, so it requires network access and a preinstalled Node.js LTS runtime. This workflow does not ask for or implement product-specific features. A file-plan approval still does not authorize dependency installation, generators, Git, cloud actions, external API calls, or any other command; those require a separate command approval.
 
 ### Existing projects and Codex settings
 
@@ -51,6 +53,16 @@ Before the file plan is created, the Skill first records the collaboration host,
 
 ## Development
 
+### Evidence-based AGENTS generation
+
+The planner renders the complete Korean or English root guide in `agentsGuide.markdown`. Routing and full-suite/affected-check policies change the actual instructions, while minimal routing removes optional sections. Service, multi-package, SDK, data, AI and generated-output rules compose from independent evidence rather than competing for a single template slot.
+
+Verification evidence is tracked per project area. Node scripts retain the nearest package-manager choice; Flutter, configured Python tooling, Go, JVM wrappers and .NET have bounded check adapters. Every command records its scope, effects and `not-run` status. Watchers, fixers, live calls and publication commands are not default verification checks. Missing commands remain visible; Rust, Swift, plain Dart and Terraform are detected but do not receive invented checks. User-confirmed commands, scoped invariants and project context can be recorded using the guide-policy catalogue's structured fields.
+
+Root guides have a 16 KiB generation budget. Large path/command inventories are routed to a separately planned `docs/project-bootstrap/agents-evidence.md`, retaining per-area gaps and the complete collected commands. Metadata collection limits and unreadable manifests are explicit, and an existing `AGENTS.override.md` triggers a merge preview. The plugin preserves Maven/Groovy builds and checks manifest evidence before treating an app as an existing Flutter or Expo scaffold.
+
+The regression suite exercises real temporary workspaces, runtime-specific fixtures, mixed-language repositories, policy/locale combinations, command effects, manifest limits and bounded document rendering. It tests guide generation; it does not install SDKs or run generated applications.
+
 The repository has no package dependencies. Node's built-in test runner is enough:
 
 ```powershell
@@ -60,6 +72,8 @@ node --test server/test/*.test.js
 ```
 
 `scripts/build.mjs` refreshes the committed runtime artifact at `plugins/project-bootstrap/server/dist/index.js`. Run it whenever `server/src/` changes.
+
+The test suite covers both a clean Expo root-scaffold plan and the safety case where an existing populated workspace must not be turned into a nested app.
 
 ## Repository layout
 

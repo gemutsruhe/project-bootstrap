@@ -53,7 +53,14 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /Do not ask for product features, user workflows, acceptance criteria, or implementation details/);
   assert.match(skill, /Do not create product-specific screens, API endpoints, business logic, database schemas, sample user flows, or feature tests/);
   assert.match(skill, /flutter create --no-pub --project-name <project_name> \./);
+  assert.match(skill, /npx create-expo-app@latest \. --template default --no-agents-md --yes/);
   assert.match(skill, /The file-plan approval does not authorize this command/);
+  assert.match(skill, /runtimeSetup\.artifactWritePhase/);
+  assert.match(skill, /do not silently create `apps\/<name>`/);
+  assert.match(skill, /auto-install lint configuration/);
+  assert.match(skill, /baseline CI workflow/);
+  assert.match(skill, /registry-backed audit/);
+  assert.match(skill, /Do not launch `server\/dist\/index\.js`/);
   assert.match(skill, /Never create or rewrite `\.codex\/config\.toml`/);
   assert.match(skill, /marked `conflict` or `merge-preview`/);
   assert.doesNotMatch(skill, /First working slice/);
@@ -63,13 +70,9 @@ test("workspace guide templates make their task-specific relationship explicit",
   const templateRoot = path.join(HERE, "../../plugins/project-bootstrap/templates/common");
   const agents = fs.readFileSync(path.join(templateRoot, "AGENTS.md.tmpl"), "utf8");
 
-  assert.match(agents, /Read only the guide relevant to the task/);
-  for (const placeholder of ["AGENTS_REPOSITORY_MAP", "AGENTS_VERIFICATION_COMMANDS", "AGENTS_BOUNDARIES", "AGENTS_LOCAL_GUIDANCE", "AGENTS_CODING_CONVENTIONS", "AGENTS_REVIEW_RULES"]) {
-    assert.match(agents, new RegExp("\\{\\{" + placeholder + "\\}\\}"));
-  }
-  for (const name of ["ARCHITECTURE.md", "TEAM_GUIDE.md", "PLANS.md", "CODE_REVIEW.md"]) {
-    assert.match(agents, new RegExp(name.replace(".", "\\.")));
-  }
+  assert.equal(agents.trim(), "{{AGENTS_DOCUMENT}}");
+  // Policy semantics and guide links are verified against the actual renderer
+  // in agents-regressions.test.js, not against fixed template wording.
   for (const name of ["ARCHITECTURE.md.tmpl", "TEAM_GUIDE.md.tmpl", "PLANS.md.tmpl", "CODE_REVIEW.md.tmpl", "pull-request-template.md.tmpl"]) {
     assert.equal(fs.existsSync(path.join(templateRoot, name)), true, name);
   }
@@ -78,7 +81,7 @@ test("workspace guide templates make their task-specific relationship explicit",
 test("workspace guide templates and interview reference retain reviewed decisions", () => {
   const templateRoot = path.join(HERE, "../../plugins/project-bootstrap/templates/common");
   const decisionPlaceholders = [
-    ["AGENTS.md.tmpl", "AGENTS_GUIDE_DECISIONS"],
+    ["AGENTS.md.tmpl", "AGENTS_DOCUMENT"],
     ["ARCHITECTURE.md.tmpl", "ARCHITECTURE_GUIDE_DECISIONS"],
     ["TEAM_GUIDE.md.tmpl", "TEAM_GUIDE_DECISIONS"],
     ["PLANS.md.tmpl", "PLANS_GUIDE_DECISIONS"],

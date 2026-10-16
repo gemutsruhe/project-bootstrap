@@ -11,4 +11,6 @@ Explain that this plugin works only in local Codex tasks because its MCP server 
 
 Tell the user to open the target project locally, enable Codex Plan mode when it is available, then invoke the `project-bootstrap` Skill. The workflow begins with an inventory and a one-decision-at-a-time interview. In a host that offers structured Plan questions, each decision appears as a small set of choices with an `Other`/comment path; other hosts use the equivalent text prompt. When candidates must be compared, the packaged Catalog Explorer UI shows the candidate cards and source Markdown; if the host cannot render it, the Skill uses the text fallback. It then produces a recommendation, validation report, and file/command plan. It changes files only after the user explicitly approves that plan.
 
+If the host does not expose the Project Bootstrap MCP tools after installation, report that integration problem and ask the user to reopen or reinstall the plugin. Do not start the packaged MCP server manually in a terminal or emulate its protocol.
+
 For an upgrade, show the installed plugin version and the available version if the host provides it. Ask the user before invoking the marketplace upgrade workflow.

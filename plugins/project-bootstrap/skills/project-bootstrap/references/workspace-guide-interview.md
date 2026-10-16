@@ -12,7 +12,7 @@ Pass the collected objects to `create_plan` as `workspaceSettings` and `guideDec
 {
   "workspaceSettings": { "collaborationHost": "github" },
   "guideDecisions": {
-  "agents": { "profile": "contextual", "routing": "...", "verification": "...", "codingStyle": "...", "functionDesign": "...", "commentStyle": "..." },
+  "agents": { "profile": "contextual", "routing": "...", "verification": "...", "documentStructure": "auto", "codingStyle": "...", "functionDesign": "...", "commentStyle": "..." },
   "architecture": { "profile": "decision-focused", "boundaries": "...", "decisionTrigger": "..." },
   "team": { "profile": "small-team", "ownership": "...", "handoff": "..." },
   "plans": { "profile": "significant-change", "trigger": "...", "detail": "..." },
@@ -36,7 +36,17 @@ Record `none`, `github`, `gitlab`, `existing`, or `other` exactly as the MCP sch
 
 ## 1. AGENTS.md
 
-Before asking for the policy, show the `agentGuideEvidence` from the latest `inspect_workspace` response: detected source/test/documentation roots, declared verification-script names, lockfiles, generated-file hints, and existing root or nested guides. This is local metadata only; do not read or reproduce source contents or package-script bodies. Ask the user to correct a missing or misleading path before the file plan. If no declared verification command is found, record that it must remain a confirmation prompt in the generated guide rather than inventing a command.
+Before asking for the policy, show the `agentGuideEvidence` from the latest `inspect_workspace` response: detected source/test/documentation roots, declared verification-script names, supported runtime-manifest checks, lockfiles, generated-file hints, and existing root or nested guides. This is local metadata only; do not read or reproduce source contents or package-script bodies. Ask the user to correct a missing or misleading path before the file plan. If no declared or runtime-manifest verification command is found, record that it must remain a confirmation prompt in the generated guide rather than inventing a command.
+
+Review `verification.areas` separately: a check in one application does not cover other services. `declared` means a command is evidenced, not that it ran; test coverage is reported separately from lint/build evidence. Explain `unsupported`, `needs-confirmation`, collection gaps and package-manager conflicts before accepting a plan. Runtime additions or migrations require the user to review `existing-runtime-review`; set `requirements.runtimeChangeApproved` only for an explicit decision.
+
+Use the policy catalogue's `structuredFields` when supplied context needs more precision:
+
+- `projectContext`: the user's concise purpose or operating context, without inventing features.
+- `rules`: objects with a repository-relative `scope`, a confirmed `invariant`, and a `safeAlternative`.
+- `reviewedCommands`: exact `command`, relative `workingDirectory`, `kind`, `stage`, `effects`, optional `covers` directories, and `confirmed: true`. Use this to record a user-confirmed setup, verification or generation declaration. This does not authorize execution. Keep missing tool/environment requirements visible.
+
+The final `agentsGuide.markdown` is already localized and policy-aware. Minimal routing omits optional sections; full-suite verification changes the completion criterion. Any `supportingDocuments` are part of the file plan and must be reviewed for conflicts just like the root guide.
 
 Ask: **How should Codex route repository guidance?**
 
@@ -50,6 +60,14 @@ Only for Other/custom or strict governance, ask the next missing routing detail:
 - **Local scope:** root guide only, or nested guidance only where a directory has genuinely different rules. Never create nested AGENTS.md files merely to repeat root guidance.
 
 When the policy is `nested-where-needed`, list only inventory-detected candidate areas and ask for the distinct local rule before planning any nested guide. Do not create a nested file solely because a conventional directory exists.
+
+Ask: **Which AGENTS.md structure best fits this project?**
+
+- **Automatic from reviewed evidence (Recommended)** — select a concise router, multi-surface, service/MCP, SDK/AI, or generated/distribution shape using the confirmed catalogue selection and local path evidence; show the evidence in the plan.
+- **Task-routed root guide** — retain only global boundaries, commands, and links; put specialised procedures in confirmed local guides or Skills.
+- **Project-specific shape** — select one of multi-surface, service/MCP, SDK/AI, generated/distribution, or Other and explain why the automatic shape is not appropriate.
+
+Use `documentStructure` with one of `auto`, `router`, `multi-surface`, `service-mcp`, `sdk-ai`, `generated-distribution`, or `custom`. A non-automatic selection controls the document layout only; it does not authorize invented commands, data ownership, generator rules, external services, or security assertions. For `custom`, collect a concise scope, invariant, and safe alternative in `comment`.
 
 Then ask each coding-convention decision separately. These are working conventions, not a request to prescribe formatter settings or duplicate the linter.
 

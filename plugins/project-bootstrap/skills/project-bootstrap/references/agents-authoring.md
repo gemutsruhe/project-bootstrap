@@ -13,15 +13,27 @@ These sources are examples of structure, not policy authority. Never copy organi
 
 ## Rules adopted by Project Bootstrap
 
-1. Keep the root guide concise and task-routed. Link to `ARCHITECTURE.md`, `PLANS.md`, and review guidance only when their subject is relevant.
-2. Treat coding conventions as project decisions, not language stereotypes. Prefer a detected local pattern; for a new project, let the user select a concise boundary and function-design baseline.
-3. A review rule must preserve a confirmed, consequential, non-obvious invariant. State its scope and safe path. Keep formatting, linting, and other mechanical checks in declared tooling or CI.
-4. Build the repository map from local inventory evidence. Describe only paths that were detected or explicitly confirmed by the user.
-5. List a verification command only when its name is declared in a local manifest. Preserve the manifest-relative working directory and do not include arbitrary script bodies.
-6. Treat lockfiles and generated-file hints as review boundaries, not proof of ownership. Ask for the owning generator before adding a prohibition or a nested guide.
-7. Add a nested `AGENTS.md` only if that directory has a distinct, confirmed rule. Never duplicate the root guide in every source folder.
-8. When evidence is missing, record a visible confirmation prompt rather than guessing. The user must review the resulting blueprint before file-plan approval.
+1. Keep the main document shape separate from evidence-backed facets. A multi-service AI repository can need service, cross-package, data and AI guidance together. A data profile alone is not evidence of model use; `next-env.d.ts` alone is not a distribution architecture.
+2. Build source, test, evaluation, platform, data and manifest maps from local inventory evidence. Retain excluded output-directory boundaries without traversing caches. Treat Rust, Swift, plain Dart and Terraform as detected but unsupported for automatic command generation.
+3. Evaluate verification coverage per manifest area. A web lint command does not verify a Python service. Distinguish declared checks, test evidence, user-confirmed checks, configuration-only roots and missing/unsupported checks. Declaration is never an execution result.
+4. Resolve Node package managers from the nearest explicit manifest setting or local lockfile, then applicable ancestors. Preserve explicit choices and disclose conflicting/ambiguous lockfiles. Require nonempty string script values. Do not expose script bodies or assume that a test/build/lint name implies harmless execution.
+5. Record effects and review requirements for every command. Persistent watchers, fixers, publication, device and live-system checks are not default verification. Network, setup and runtime execution still require the existing command approval boundary.
+6. Standard check adapters are bounded:
+   - Flutter: require a recognised dependency mapping with `dependencies.flutter.sdk: flutter`. Keep ordinary Dart packages separate.
+   - Python: require pytest/ruff/mypy configuration evidence before emitting the corresponding module check. Do not select an environment manager or install missing tools.
+   - Go: require a module declaration; surface potential dependency network effects.
+   - Maven/Gradle: use the wrapper available for the host OS. Infer a Gradle test task only for a recognised JVM plugin; Android variants and device tasks need declared or user-confirmed commands.
+   - .NET: retain project scope, use `--no-restore`, and require test-project evidence for test commands.
+   - Make/CI: use only declared check targets or bounded literal check invocations. Dynamic commands, compound shell expressions and ambiguous CI working directories remain confirmation items.
+7. When evidence is insufficient, retain a visible gap. User-confirmed checks may be recorded as structured `reviewedCommands` with exact directory, coverage, stage and effects. Their declaration does not grant execution approval.
+8. Honour routing, verification, coding, comment, local-scope and locale decisions in the actual output. A full-suite policy must not retain a conflicting affected-check-only completion rule. User-defined invariants use `rules` with scope, invariant and safeAlternative; purpose/context uses `projectContext`.
+9. Treat generated filenames and output directories as hints, not ownership proof. Record a confirmed source-to-output relationship before prohibiting edits or prescribing a generator.
+10. Preserve existing instructions. In one directory, a nonempty `AGENTS.override.md` precedes `AGENTS.md`; deeper instructions take precedence where they conflict. A new root guide potentially shadowed by an override requires a merge preview. See the [official instruction discovery rules](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+11. Keep the root under its 16 KiB generation budget. Bound path/command lists and route large repositories to the planned `docs/project-bootstrap/agents-evidence.md` index, which retains every collected command, area and gap. Omitted root entries are not optional checks. Do not create nested AGENTS files merely to distribute repeated rules.
+12. Refresh instructions when commands, areas or contracts change, remove obsolete rules, and distinguish executed checks from declared or unavailable checks.
 
 ## Rendering boundary
 
-The `create_plan` response contains `agentsGuide.templateValues`, produced from local inventory evidence and the approved guide policy. Render those values exactly into the six AGENTS placeholders. The surrounding guidance may be localized, but do not alter paths, commands, coding decisions, or evidence classifications without a new reviewed inventory or user confirmation.
+Use `create_plan.agentsGuide.markdown` exactly as the `{{AGENTS_DOCUMENT}}` value. The server renders conditional sections, coding policy and Korean/English prose deterministically; command strings and paths remain unchanged. Individual `templateValues` remain available for evidence inspection, not for reconstructing a competing root document.
+
+When `agentsGuide.supportingDocuments` is nonempty, its documents appear as planned artifacts with exact content. Apply the same conflict and approval rules to them. Do not create an unplanned index or a broken reference to skipped/conflicting content. A document-budget or evidence-collection gap remains visible and prevents claiming that the guide is complete.

@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +16,7 @@ async function filesEqual(left, right) {
 }
 
 if (checkOnly) {
-  const expected = ["core.js", "guide-policies.js", "index.js"];
+  const expected = ["core.js", "guide-policies.js", "agent-evidence.js", "agents-guide.js", "index.js"];
   const stale = [];
   for (const file of expected) {
     if (!(await filesEqual(path.join(source, file), path.join(destination, file)))) stale.push(file);
@@ -24,7 +24,6 @@ if (checkOnly) {
   if (stale.length) throw new Error(`Packaged MCP runtime is stale: ${stale.join(", ")}. Run node scripts/build.mjs.`);
   process.stdout.write("Packaged MCP runtime is current.\n");
 } else {
-  await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
   await cp(source, destination, { recursive: true });
   await writeFile(path.join(destination, "package.json"), '{"type":"module"}\n');
