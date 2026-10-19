@@ -10,8 +10,9 @@ export { listGuidePolicies } from "./guide-policies.js";
 export { createAgentGuideEvidence } from "./agent-evidence.js";
 export { createAgentsGuideBlueprint } from "./agents-guide.js";
 
-export const PLUGIN_VERSION = "0.6.1";
+export const PLUGIN_VERSION = "0.6.3";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v2.html";
+export const WORKSPACE_GUIDE_CONFIGURATOR_RESOURCE_URI = "ui://project-bootstrap/workspace-guide-configurator-v1.html";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const IGNORED_DIRECTORIES = new Set([
@@ -151,6 +152,49 @@ const TOOL_DEFINITIONS = [
       additionalProperties: false
     },
     annotations: { readOnlyHint: true }
+  },
+  {
+    name: "render_workspace_guide_configurator",
+    description: "Render one workspace-guide policy in an interactive editor. Users can select a profile, adjust its allowed fields, add a validated custom explanation, and add scoped AGENTS.md rules. This is planning input only and never writes files or runs commands.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        guideKey: { type: "string", enum: ["agents", "architecture", "team", "plans", "codeReview", "pullRequest"] },
+        decision: { type: "object", description: "Optional current decision draft for this guide only." },
+        workspaceSettings: { type: "object", description: "Current reviewed workspace settings, used to determine whether the pull-request guide is applicable." },
+        locale: { type: "string", enum: ["en", "ko"], default: "en" }
+      },
+      required: ["guideKey"],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true },
+    _meta: {
+      ui: { resourceUri: WORKSPACE_GUIDE_CONFIGURATOR_RESOURCE_URI },
+      "openai/outputTemplate": WORKSPACE_GUIDE_CONFIGURATOR_RESOURCE_URI,
+      "openai/toolInvocation/invoking": "Opening workspace-guide configurator…",
+      "openai/toolInvocation/invoked": "Workspace-guide configurator ready."
+    }
+  },
+  {
+    name: "submit_workspace_guide_configuration",
+    description: "Validate one user-edited workspace-guide decision and return normalized planning input. The result records no durable state and never approves files, commands, or hosted-repository changes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        guideKey: { type: "string", enum: ["agents", "architecture", "team", "plans", "codeReview", "pullRequest"] },
+        decision: { type: "object", description: "The selected profile, allowed fields, and optional structured additions for one guide." },
+        workspaceSettings: { type: "object", description: "Current reviewed workspace settings. pullRequest requires collaborationHost: github." },
+        locale: { type: "string", enum: ["en", "ko"], default: "en" }
+      },
+      required: ["guideKey", "decision"],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true },
+    _meta: {
+      ui: { visibility: ["model", "app"] },
+      "openai/toolInvocation/invoking": "Validating workspace-guide configuration…",
+      "openai/toolInvocation/invoked": "Workspace-guide configuration is ready."
+    }
   },
   {
     name: "create_plan",
@@ -393,6 +437,96 @@ export function submitCatalogSelection(entries, { candidateIds, selectedId, comm
     safeguards: [
       "This is planning input only; it does not write files or run commands.",
       "This tool stores no selection outside the current conversation context."
+    ]
+  };
+}
+
+function guidePolicyFor(guideKey, locale) {
+  const guide = listGuidePolicies({ locale }).find((candidate) => candidate.key === guideKey);
+  if (!guide) throw new Error("Unknown workspace guide.");
+  return guide;
+}
+
+function guideConfiguratorDraft(guide, decision = {}) {
+  if (!decision || typeof decision !== "object" || Array.isArray(decision)) {
+    throw new Error("Guide configurator decision must be an object.");
+  }
+  const profileId = decision.profile ?? guide.profiles[0]?.id;
+  const profile = guide.profiles.find((candidate) => candidate.id === profileId);
+  if (!profile) throw new Error(`Invalid ${guide.key}.profile guide policy value.`);
+
+  const permitted = new Set([
+    "profile",
+    "comment",
+    ...Object.keys(guide.fields),
+    ...(guide.key === "agents" ? ["projectContext", "rules", "reviewedCommands"] : [])
+  ]);
+  for (const key of Object.keys(decision)) {
+    if (!permitted.has(key)) throw new Error(`Unknown ${guide.key} guide decision field: ${key}.`);
+  }
+
+  const draft = { profile: profileId, ...profile.defaults };
+  for (const [field, allowedValues] of Object.entries(guide.fields)) {
+    if (decision[field] === undefined) continue;
+    if (typeof decision[field] !== "string" || !allowedValues.includes(decision[field])) {
+      throw new Error(`Invalid ${guide.key}.${field} guide policy value.`);
+    }
+    draft[field] = decision[field];
+  }
+  for (const field of ["comment", "projectContext", "rules", "reviewedCommands"]) {
+    if (decision[field] !== undefined) draft[field] = decision[field];
+  }
+  return draft;
+}
+
+export function createWorkspaceGuideConfigurator({ guideKey, decision = {}, workspaceSettings = {}, locale = "en" } = {}) {
+  const normalizedWorkspaceSettings = normalizeWorkspaceSettings(workspaceSettings);
+  const guide = guidePolicyFor(guideKey, locale);
+  if (guideKey === "pullRequest" && normalizedWorkspaceSettings.collaborationHost !== "github") {
+    throw new Error("pullRequest configuration requires workspaceSettings.collaborationHost: github.");
+  }
+  const draft = guideConfiguratorDraft(guide, decision);
+  const isKorean = locale === "ko";
+  return {
+    title: isKorean ? `${guide.title} 설정` : `${guide.title} configuration`,
+    locale,
+    guide,
+    draft,
+    workspaceSettings: normalizedWorkspaceSettings,
+    guidance: isKorean
+      ? "프로필과 세부 정책을 검토한 뒤 제출하세요. 사용자 정의 선택에는 적용 범위, 지킬 규칙, 안전한 대안을 설명하세요. 이 설정은 계획 입력일 뿐 파일 변경이나 명령 실행을 승인하지 않습니다."
+      : "Review the profile and detailed policies before submitting. For a custom choice, explain the scope, convention or invariant, and safe alternative. This configuration is planning input only; it does not approve file changes or commands.",
+    safeguards: [
+      "This UI validates only one guide decision at a time.",
+      "The submitted configuration is not persisted outside the current planning conversation.",
+      "Existing .codex/config.toml files are preserved and cannot be edited by this UI."
+    ]
+  };
+}
+
+export function submitWorkspaceGuideConfiguration({ guideKey, decision, workspaceSettings = {}, locale = "en" } = {}) {
+  guidePolicyFor(guideKey, locale);
+  const normalizedWorkspaceSettings = normalizeWorkspaceSettings(workspaceSettings);
+  const guideDecisions = normalizeGuideDecisions({ [guideKey]: decision }, {
+    allowPullRequest: normalizedWorkspaceSettings.collaborationHost === "github"
+  });
+  const normalizedDecision = guideDecisions[guideKey];
+  return {
+    status: "accepted",
+    source: "project-bootstrap.workspace-guide-configurator",
+    locale,
+    guideKey,
+    guideDecisions,
+    workspaceSettings: normalizedWorkspaceSettings,
+    continuation: {
+      replaceOnlyCurrentGuideDecision: true,
+      message: "Treat this as the user's answer for the current workspace-guide decision. Keep earlier guide decisions, do not ask this guide again, then continue the applicable interview or create a read-only plan after all required decisions are confirmed."
+    },
+    configurationSummary: normalizedDecision,
+    safeguards: [
+      "This is planning input only; it does not write files, run commands, or change hosted repository settings.",
+      "Custom rules and reviewed commands are validated before they are returned.",
+      "Existing .codex/config.toml files remain outside this configuration flow."
     ]
   };
 }
@@ -1181,10 +1315,12 @@ export function checkUpdates({ installedVersion = PLUGIN_VERSION, availableVersi
 }
 
 export async function invokeTool(name, args = {}) {
-  const catalog = ["inspect_workspace", "list_workspace_guide_policies", "check_updates"].includes(name) ? undefined : await loadCatalog();
+  const catalog = ["inspect_workspace", "list_workspace_guide_policies", "render_workspace_guide_configurator", "submit_workspace_guide_configuration", "check_updates"].includes(name) ? undefined : await loadCatalog();
   switch (name) {
     case "inspect_workspace": return inspectWorkspace(args);
     case "list_workspace_guide_policies": return { schemaVersion: GUIDE_POLICY_SCHEMA_VERSION, guides: listGuidePolicies(args) };
+    case "render_workspace_guide_configurator": return createWorkspaceGuideConfigurator(args);
+    case "submit_workspace_guide_configuration": return submitWorkspaceGuideConfiguration(args);
     case "list_catalog": return listCatalog(catalog, args);
     case "render_catalog_explorer": return createCatalogExplorer(catalog, args);
     case "submit_catalog_selection": return submitCatalogSelection(catalog, args);

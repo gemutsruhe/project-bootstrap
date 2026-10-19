@@ -7,6 +7,7 @@ import {
   createAgentGuideEvidence,
   createCatalogExplorer,
   createPlan,
+  createWorkspaceGuideConfigurator,
   determineProgrammingLanguageDecision,
   determineResponseLocaleDecision,
   inspectCodexSettings,
@@ -17,10 +18,60 @@ import {
   parseFrontmatter,
   recommend,
   submitCatalogSelection,
+  submitWorkspaceGuideConfiguration,
   validateSelection
 } from "../src/core.js";
 
 const catalog = await loadCatalog();
+
+test("workspace guide configurator exposes one guide's editable policy and validates submitted additions", () => {
+  const rendered = createWorkspaceGuideConfigurator({
+    guideKey: "agents",
+    locale: "ko",
+    decision: {
+      profile: "contextual",
+      codingStyle: "functional-core",
+      reviewedCommands: [{
+        command: "npm run test",
+        workingDirectory: ".",
+        kind: "test",
+        stage: "verification",
+        effects: ["unknown"],
+        confirmed: true
+      }]
+    }
+  });
+  assert.equal(rendered.guide.key, "agents");
+  assert.equal(rendered.draft.codingStyle, "functional-core");
+  assert.equal(rendered.workspaceSettings.collaborationHost, "none");
+  assert.ok(rendered.guide.structuredFields.rules);
+  assert.equal(rendered.draft.reviewedCommands[0].command, "npm run test");
+
+  const submitted = submitWorkspaceGuideConfiguration({
+    guideKey: "agents",
+    locale: "ko",
+    decision: {
+      profile: "contextual",
+      codingStyle: "functional-core",
+      rules: [{
+        scope: "server/src",
+        invariant: "Guide settings must remain schema-validated.",
+        safeAlternative: "Add an allowed policy field and a regression test before rendering it."
+      }]
+    }
+  });
+  assert.equal(submitted.status, "accepted");
+  assert.equal(submitted.guideDecisions.agents.rules[0].scope, "server/src");
+  assert.equal(submitted.continuation.replaceOnlyCurrentGuideDecision, true);
+  assert.throws(
+    () => submitWorkspaceGuideConfiguration({ guideKey: "agents", decision: { profile: "custom" } }),
+    /comment is required/
+  );
+  assert.throws(
+    () => createWorkspaceGuideConfigurator({ guideKey: "pullRequest" }),
+    /collaborationHost: github/
+  );
+});
 
 test("parses flat YAML frontmatter with locale fields and lists", () => {
   const parsed = parseFrontmatter("---\nid: sample\ntags: [one, two]\ntitle_en: Sample\n---\nBody\n");

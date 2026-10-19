@@ -1,45 +1,66 @@
 import { promises as fs } from "node:fs";
-import { CATALOG_EXPLORER_RESOURCE_URI, PLUGIN_VERSION, getToolDefinitions, invokeTool } from "./core.js";
+import { CATALOG_EXPLORER_RESOURCE_URI, PLUGIN_VERSION, WORKSPACE_GUIDE_CONFIGURATOR_RESOURCE_URI, getToolDefinitions, invokeTool } from "./core.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CATALOG_EXPLORER_MIME_TYPE = "text/html;profile=mcp-app";
 
-function catalogExplorerFile() {
+function catalogExplorerFiles() {
   return [
     path.resolve(HERE, "../../ui/catalog-explorer-v1.html"),
     path.resolve(HERE, "../../plugins/project-bootstrap/ui/catalog-explorer-v1.html")
   ];
 }
 
-export function getResourceDefinitions() {
-  return [{
-    uri: CATALOG_EXPLORER_RESOURCE_URI,
-    name: "Project Bootstrap Catalog Explorer",
-    description: "Interactive comparison of packaged Markdown catalogue candidates.",
-    mimeType: CATALOG_EXPLORER_MIME_TYPE
-  }];
+function workspaceGuideConfiguratorFiles() {
+  return [
+    path.resolve(HERE, "../../ui/workspace-guide-configurator-v1.html"),
+    path.resolve(HERE, "../../plugins/project-bootstrap/ui/workspace-guide-configurator-v1.html")
+  ];
 }
 
-async function loadCatalogExplorerHtml() {
-  for (const file of catalogExplorerFile()) {
+export function getResourceDefinitions() {
+  return [
+    {
+      uri: CATALOG_EXPLORER_RESOURCE_URI,
+      name: "Project Bootstrap Catalog Explorer",
+      description: "Interactive comparison of packaged Markdown catalogue candidates.",
+      mimeType: CATALOG_EXPLORER_MIME_TYPE
+    },
+    {
+      uri: WORKSPACE_GUIDE_CONFIGURATOR_RESOURCE_URI,
+      name: "Project Bootstrap Workspace Guide Configurator",
+      description: "Interactive configuration of one validated workspace-guide policy at a time.",
+      mimeType: CATALOG_EXPLORER_MIME_TYPE
+    }
+  ];
+}
+
+async function loadUiHtml(uri) {
+  const files = uri === CATALOG_EXPLORER_RESOURCE_URI
+    ? catalogExplorerFiles()
+    : uri === WORKSPACE_GUIDE_CONFIGURATOR_RESOURCE_URI
+      ? workspaceGuideConfiguratorFiles()
+      : undefined;
+  if (!files) throw new Error(`Unknown resource: ${uri}`);
+  for (const file of files) {
     try {
       return await fs.readFile(file, "utf8");
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
   }
-  throw new Error("Catalog Explorer UI resource could not be located.");
+  throw new Error("Project Bootstrap UI resource could not be located.");
 }
 
 export async function readResource(uri) {
-  if (uri !== CATALOG_EXPLORER_RESOURCE_URI) throw new Error(`Unknown resource: ${uri}`);
+  if (![CATALOG_EXPLORER_RESOURCE_URI, WORKSPACE_GUIDE_CONFIGURATOR_RESOURCE_URI].includes(uri)) throw new Error(`Unknown resource: ${uri}`);
   return {
     contents: [{
       uri,
       mimeType: CATALOG_EXPLORER_MIME_TYPE,
-      text: await loadCatalogExplorerHtml(),
+      text: await loadUiHtml(uri),
       _meta: { ui: { prefersBorder: true } }
     }]
   };
@@ -85,8 +106,12 @@ export async function handleRequest(request) {
       const data = await invokeTool(params.name, params.arguments || {});
       const text = params.name === "render_catalog_explorer"
         ? `Catalog Explorer is ready with ${data.entries.length} read-only candidate record(s). Select a candidate and optionally submit a comment to chat.`
+        : params.name === "render_workspace_guide_configurator"
+          ? `Workspace Guide Configurator is ready for ${data.guide.title}. Adjust the reviewed policy and submit it to chat.`
         : params.name === "submit_catalog_selection"
           ? `Accepted Catalog Explorer selection: ${data.selection.id}. Continue the guided plan from this choice; it is not approval for file changes or commands.`
+          : params.name === "submit_workspace_guide_configuration"
+            ? `Accepted workspace-guide configuration for ${data.guideKey}. Continue the guided plan from this decision; it is not approval for file changes or commands.`
         : undefined;
       return response(id, toolResult(data, false, text));
     } catch (error) {

@@ -17,13 +17,16 @@ test("MCP initialize exposes a tool-capable local server", async () => {
 test("MCP lists read-only planning tools and the Catalog Explorer UI tool", async () => {
   const result = await handleRequest({ jsonrpc: "2.0", id: 2, method: "tools/list" });
   const names = result.result.tools.map((tool) => tool.name);
-  assert.deepEqual(names, ["inspect_workspace", "list_catalog", "render_catalog_explorer", "submit_catalog_selection", "recommend", "validate_selection", "list_workspace_guide_policies", "create_plan", "check_updates"]);
+  assert.deepEqual(names, ["inspect_workspace", "list_catalog", "render_catalog_explorer", "submit_catalog_selection", "recommend", "validate_selection", "list_workspace_guide_policies", "render_workspace_guide_configurator", "submit_workspace_guide_configuration", "create_plan", "check_updates"]);
   const explorer = result.result.tools.find((tool) => tool.name === "render_catalog_explorer");
   assert.equal(explorer._meta.ui.resourceUri, "ui://project-bootstrap/catalog-explorer-v2.html");
   assert.equal(explorer.annotations.readOnlyHint, true);
   const submit = result.result.tools.find((tool) => tool.name === "submit_catalog_selection");
   assert.equal(submit.annotations.readOnlyHint, true);
   assert.deepEqual(submit._meta.ui.visibility, ["model", "app"]);
+  const configurator = result.result.tools.find((tool) => tool.name === "render_workspace_guide_configurator");
+  assert.equal(configurator._meta.ui.resourceUri, "ui://project-bootstrap/workspace-guide-configurator-v1.html");
+  assert.equal(configurator.annotations.readOnlyHint, true);
 });
 
 test("MCP exposes the versioned workspace-guide policy catalogue without writes", async () => {
@@ -40,7 +43,7 @@ test("MCP exposes the versioned workspace-guide policy catalogue without writes"
 
 test("MCP exposes the Catalog Explorer as a local MCP Apps resource", async () => {
   const listed = await handleRequest({ jsonrpc: "2.0", id: 21, method: "resources/list" });
-  assert.equal(listed.result.resources.length, 1);
+  assert.equal(listed.result.resources.length, 2);
   assert.equal(listed.result.resources[0].mimeType, "text/html;profile=mcp-app");
 
   const read = await handleRequest({
@@ -56,6 +59,41 @@ test("MCP exposes the Catalog Explorer as a local MCP Apps resource", async () =
   assert.match(resource.text, /ui\/message/);
   assert.match(resource.text, /submit_catalog_selection/);
   assert.match(resource.text, /setWidgetState/);
+
+  const configuration = await handleRequest({
+    jsonrpc: "2.0",
+    id: 26,
+    method: "resources/read",
+    params: { uri: "ui://project-bootstrap/workspace-guide-configurator-v1.html" }
+  });
+  assert.match(configuration.result.contents[0].text, /submit_workspace_guide_configuration/);
+  assert.match(configuration.result.contents[0].text, /Add rule/);
+  assert.match(configuration.result.contents[0].text, /result\.reviewedCommands = configuration\.draft\.reviewedCommands/);
+  assert.match(configuration.result.contents[0].text, /Confirmed commands/);
+});
+
+test("workspace guide configurator returns normalized per-guide planning input without writes", async () => {
+  const rendered = await handleRequest({
+    jsonrpc: "2.0",
+    id: 27,
+    method: "tools/call",
+    params: { name: "render_workspace_guide_configurator", arguments: { guideKey: "codeReview", locale: "ko" } }
+  });
+  assert.equal(rendered.result.isError, false);
+  assert.equal(rendered.result.structuredContent.guide.key, "codeReview");
+
+  const submitted = await handleRequest({
+    jsonrpc: "2.0",
+    id: 28,
+    method: "tools/call",
+    params: {
+      name: "submit_workspace_guide_configuration",
+      arguments: { guideKey: "codeReview", decision: { profile: "security-focused" }, locale: "ko" }
+    }
+  });
+  assert.equal(submitted.result.isError, false);
+  assert.equal(submitted.result.structuredContent.guideDecisions.codeReview.priorities, "security");
+  assert.equal(submitted.result.structuredContent.continuation.replaceOnlyCurrentGuideDecision, true);
 });
 
 test("Catalog Explorer selection tool returns structured continuation input without writes", async () => {

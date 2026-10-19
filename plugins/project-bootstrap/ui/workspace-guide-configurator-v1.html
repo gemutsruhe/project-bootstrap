@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Bootstrap Workspace Guide Configurator</title>
+    <style>
+      :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --surface: color-mix(in srgb, Canvas 96%, CanvasText 4%); --surface-raised: color-mix(in srgb, Canvas 92%, CanvasText 8%); --border: color-mix(in srgb, CanvasText 20%, transparent); --muted: color-mix(in srgb, CanvasText 65%, transparent); --accent: #2563eb; --danger: #b91c1c; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--surface); color: CanvasText; }
+      button, input, select, textarea { font: inherit; }
+      main { max-width: 920px; margin: 0 auto; padding: 16px; }
+      h1 { font-size: 18px; margin: 0; }
+      h2 { font-size: 15px; margin: 0; }
+      h3 { font-size: 13px; margin: 0; }
+      p { margin: 0; }
+      .muted, .status, .note { color: var(--muted); font-size: 13px; line-height: 1.45; }
+      .header { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+      .status { max-width: 360px; text-align: right; }
+      .card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); padding: 14px; margin-top: 12px; }
+      .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 12px; }
+      label { display: grid; gap: 6px; font-weight: 650; font-size: 13px; }
+      label span { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.35; }
+      input, select, textarea { color: inherit; background: Canvas; border: 1px solid var(--border); border-radius: 7px; padding: 8px; min-width: 0; }
+      textarea { min-height: 88px; resize: vertical; width: 100%; }
+      .rule-list { display: grid; gap: 10px; margin-top: 10px; }
+      .rule { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+      .rule-fields { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(220px, 1.5fr) minmax(220px, 1.5fr); gap: 8px; margin-top: 8px; }
+      .button-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 12px; }
+      .button-group { display: flex; flex-wrap: wrap; gap: 8px; }
+      button { border: 1px solid var(--border); border-radius: 7px; background: Canvas; color: inherit; padding: 8px 11px; cursor: pointer; font-weight: 650; }
+      button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+      button.danger { color: var(--danger); }
+      button:disabled { cursor: not-allowed; opacity: .55; }
+      .hidden { display: none; }
+      @media (max-width: 720px) { main { padding: 12px; } .header, .button-row { align-items: flex-start; flex-direction: column; } .status { text-align: left; } .rule-fields { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="header">
+        <div><h1 id="title">Workspace guide configuration</h1><p class="muted" id="guidance">Loading policy…</p></div>
+        <p class="status" id="status" aria-live="polite">Connecting to the host…</p>
+      </div>
+      <form id="form" novalidate>
+        <section class="card">
+          <label for="profile" id="profile-label">Profile</label>
+          <select id="profile"></select>
+          <div class="field-grid" id="policy-fields"></div>
+        </section>
+        <section class="card">
+          <label for="comment" id="comment-label">Additional details</label>
+          <textarea id="comment"></textarea>
+          <p class="note" id="comment-note"></p>
+        </section>
+        <section class="card hidden" id="agents-details">
+          <h2 id="agents-heading">AGENTS.md additions</h2>
+          <div class="field-grid">
+            <label for="project-context" id="context-label">Project context</label>
+          </div>
+          <textarea id="project-context"></textarea>
+          <div class="button-row"><h3 id="rules-heading">Scoped rules</h3><button type="button" id="add-rule">Add rule</button></div>
+          <p class="note" id="rules-note"></p>
+          <div class="rule-list" id="rule-list"></div>
+          <div class="hidden" id="commands-details"><div class="button-row"><h3 id="commands-heading">Confirmed commands</h3></div><p class="note" id="commands-note"></p><div class="rule-list" id="command-list"></div></div>
+        </section>
+        <section class="card">
+          <div class="button-row"><p class="note" id="approval-note"></p><button class="primary" id="submit" type="submit">Submit configuration to chat</button></div>
+        </section>
+      </form>
+    </main>
+    <script>
+      (() => {
+        const APP_VERSION = "0.6.3";
+        const APP_PROTOCOL_VERSION = "2026-01-26";
+        const pending = new Map();
+        let nextRequestId = 1;
+        let configuration;
+        const elements = {
+          title: document.getElementById("title"), guidance: document.getElementById("guidance"), status: document.getElementById("status"), form: document.getElementById("form"), profile: document.getElementById("profile"), profileLabel: document.getElementById("profile-label"), fields: document.getElementById("policy-fields"), comment: document.getElementById("comment"), commentLabel: document.getElementById("comment-label"), commentNote: document.getElementById("comment-note"), agentsDetails: document.getElementById("agents-details"), agentsHeading: document.getElementById("agents-heading"), contextLabel: document.getElementById("context-label"), context: document.getElementById("project-context"), rulesHeading: document.getElementById("rules-heading"), rulesNote: document.getElementById("rules-note"), rules: document.getElementById("rule-list"), addRule: document.getElementById("add-rule"), commandsDetails: document.getElementById("commands-details"), commandsHeading: document.getElementById("commands-heading"), commandsNote: document.getElementById("commands-note"), commands: document.getElementById("command-list"), approvalNote: document.getElementById("approval-note"), submit: document.getElementById("submit")
+        };
+
+        function korean() { return configuration?.locale === "ko" || document.documentElement.lang.startsWith("ko"); }
+        function copy() {
+          return korean() ? {
+            profile: "프로필", details: "추가 설명", commentNote: "사용자 정의 프로필 또는 사용자 정의 필드를 선택한 경우 적용 범위, 지킬 규칙, 안전한 대안을 적으세요.", context: "프로젝트 맥락", contextPlaceholder: "선택 사항: 팀이 공유할 프로젝트 목적 또는 운영 맥락", additions: "AGENTS.md 추가 설정", rules: "범위가 있는 규칙", rulesNote: "규칙은 해당 범위, 반드시 지킬 조건, 안전한 대안을 모두 포함해야 합니다.", addRule: "규칙 추가", scope: "적용 범위", invariant: "지킬 조건", alternative: "안전한 대안", remove: "삭제", commands: "확인된 명령", commandsNote: "이전에 확인한 명령은 이 화면에서 변경할 수 없지만, 저장해도 현재 계획에 그대로 유지됩니다.", command: "명령", commandMeta: "작업 위치", approval: "제출은 현재 가이드의 계획 입력만 갱신합니다. 파일 변경, 명령 실행, GitHub 설정 변경은 승인하지 않습니다.", submit: "설정을 채팅에 제출", submitting: "설정 검증 중…", submitted: "설정이 검증되어 현재 계획에 반영되었습니다.", hostUnavailable: "호스트와 연결할 수 없습니다. 설정을 채팅에 직접 입력하세요.", invalidRule: "각 사용자 규칙의 세 필드를 모두 입력하세요.", apply: (guide) => `${guide} 설정을 적용했습니다. 이 값을 현재 Project Bootstrap 가이드 결정으로 사용하고, 앞선 다른 가이드 결정은 유지하세요. 이는 계획 입력일 뿐 파일 변경이나 명령 실행 승인은 아닙니다.`
+          } : {
+            profile: "Profile", details: "Additional details", commentNote: "For a custom profile or field, describe the scope, convention or invariant, and safe alternative.", context: "Project context", contextPlaceholder: "Optional: the project purpose or operating context the team should share", additions: "AGENTS.md additions", rules: "Scoped rules", rulesNote: "Every rule needs its scope, invariant, and safe alternative.", addRule: "Add rule", scope: "Scope", invariant: "Invariant", alternative: "Safe alternative", remove: "Remove", commands: "Confirmed commands", commandsNote: "Previously confirmed commands are read-only here and remain in the current plan when you save this guide.", command: "Command", commandMeta: "Working directory", approval: "Submitting updates planning input for this guide only. It does not approve file changes, commands, or GitHub settings.", submit: "Submit configuration to chat", submitting: "Validating configuration…", submitted: "The configuration was validated and applied to the current plan.", hostUnavailable: "The host connection is unavailable. Enter the configuration directly in chat.", invalidRule: "Complete all three fields for each custom rule.", apply: (guide) => `Applied ${guide} configuration. Use it as the current Project Bootstrap guide decision, keep earlier decisions for other guides, and continue the planning flow. This is planning input only, not approval for file changes or commands.`
+          };
+        }
+
+        function post(method, params, id) { window.parent.postMessage({ jsonrpc: "2.0", method, params, ...(id === undefined ? {} : { id }) }, "*"); }
+        function request(method, params) { const id = nextRequestId++; post(method, params, id); return new Promise((resolve, reject) => pending.set(id, { resolve, reject })); }
+        function notify(method, params) { post(method, params); }
+        function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+        function labelFor(value) { return String(value).replaceAll("-", " ").replace(/\b\w/g, (character) => character.toUpperCase()); }
+
+        function appendOption(select, value, label, selected) {
+          const option = document.createElement("option"); option.value = value; option.textContent = label; option.selected = value === selected; select.appendChild(option);
+        }
+
+        function renderPolicyFields() {
+          clear(elements.fields);
+          const activeProfile = configuration.guide.profiles.find((profile) => profile.id === elements.profile.value);
+          for (const [field, allowed] of Object.entries(configuration.guide.fields || {})) {
+            const label = document.createElement("label"); label.htmlFor = `field-${field}`; label.textContent = labelFor(field);
+            const select = document.createElement("select"); select.id = `field-${field}`; select.dataset.field = field;
+            const selected = configuration.draft[field] ?? activeProfile?.defaults?.[field] ?? allowed[0];
+            for (const value of allowed) appendOption(select, value, labelFor(value), selected);
+            label.appendChild(select); elements.fields.appendChild(label);
+          }
+        }
+
+        function addRule(value = {}) {
+          const item = document.createElement("div"); item.className = "rule";
+          const fields = document.createElement("div"); fields.className = "rule-fields";
+          const definitions = [["scope", copy().scope], ["invariant", copy().invariant], ["safeAlternative", copy().alternative]];
+          for (const [key, labelText] of definitions) {
+            const label = document.createElement("label"); label.textContent = labelText;
+            const input = document.createElement("input"); input.type = "text"; input.dataset.ruleField = key; input.value = value[key] || ""; label.appendChild(input); fields.appendChild(label);
+          }
+          const actions = document.createElement("div"); actions.className = "button-group";
+          const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = copy().remove; remove.addEventListener("click", () => item.remove()); actions.appendChild(remove);
+          item.append(fields, actions); elements.rules.appendChild(item);
+        }
+
+        function renderReviewedCommands(commands) {
+          clear(elements.commands);
+          for (const entry of commands || []) {
+            const item = document.createElement("div"); item.className = "rule";
+            const command = document.createElement("p"); command.textContent = `${copy().command}: ${entry.command}`;
+            const metadata = document.createElement("p"); metadata.className = "note"; metadata.textContent = `${copy().commandMeta}: ${entry.workingDirectory} · ${entry.kind} · ${entry.stage}`;
+            item.append(command, metadata); elements.commands.appendChild(item);
+          }
+          elements.commandsDetails.classList.toggle("hidden", !(commands || []).length);
+        }
+
+        function render(data) {
+          if (!data?.guide || !data?.draft) return;
+          configuration = data; document.documentElement.lang = data.locale || "en";
+          const text = copy(); elements.title.textContent = data.title || "Workspace guide configuration"; elements.guidance.textContent = data.guidance || ""; elements.profileLabel.textContent = text.profile; elements.commentLabel.textContent = text.details; elements.commentNote.textContent = text.commentNote; elements.agentsHeading.textContent = text.additions; elements.contextLabel.textContent = text.context; elements.context.placeholder = text.contextPlaceholder; elements.rulesHeading.textContent = text.rules; elements.rulesNote.textContent = text.rulesNote; elements.addRule.textContent = text.addRule; elements.approvalNote.textContent = text.approval; elements.submit.textContent = text.submit; elements.comment.value = data.draft.comment || ""; elements.context.value = data.draft.projectContext || "";
+          clear(elements.profile);
+          for (const profile of data.guide.profiles || []) appendOption(elements.profile, profile.id, profile.label, data.draft.profile);
+          renderPolicyFields(); clear(elements.rules);
+          for (const rule of data.draft.rules || []) addRule(rule); renderReviewedCommands(data.draft.reviewedCommands);
+          elements.agentsDetails.classList.toggle("hidden", data.guide.key !== "agents"); elements.status.textContent = "";
+        }
+
+        function decision() {
+          const result = { profile: elements.profile.value };
+          for (const select of elements.fields.querySelectorAll("select[data-field]")) result[select.dataset.field] = select.value;
+          const comment = elements.comment.value.trim(); if (comment) result.comment = comment;
+          if (configuration.guide.key === "agents") {
+            const projectContext = elements.context.value.trim(); if (projectContext) result.projectContext = projectContext;
+            const rules = [];
+            for (const item of elements.rules.children) {
+              const rule = {};
+              for (const input of item.querySelectorAll("input[data-rule-field]")) rule[input.dataset.ruleField] = input.value.trim();
+              if (!rule.scope && !rule.invariant && !rule.safeAlternative) continue;
+              if (!rule.scope || !rule.invariant || !rule.safeAlternative) throw new Error(copy().invalidRule);
+              rules.push(rule);
+            }
+            if (rules.length) result.rules = rules;
+            if (configuration.draft.reviewedCommands?.length) result.reviewedCommands = configuration.draft.reviewedCommands;
+          }
+          return result;
+        }
+
+        async function submit(event) {
+          event.preventDefault(); if (!configuration) return;
+          const text = copy(); let current;
+          try { current = decision(); } catch (error) { elements.status.textContent = error.message; return; }
+          elements.submit.disabled = true; elements.submit.textContent = text.submitting;
+          try {
+            const result = await request("tools/call", { name: "submit_workspace_guide_configuration", arguments: { guideKey: configuration.guide.key, decision: current, workspaceSettings: configuration.workspaceSettings, locale: configuration.locale || "en" } });
+            const submission = result?.structuredContent;
+            if (!submission?.guideDecisions) throw new Error(result?.structuredContent?.error || text.hostUnavailable);
+            const context = { source: submission.source, guideKey: submission.guideKey, guideDecisions: submission.guideDecisions, workspaceSettings: submission.workspaceSettings, continuation: submission.continuation };
+            window.openai?.setWidgetState?.({ modelContent: context, privateContent: { decision: current } });
+            try { await request("ui/update-model-context", { structuredContent: context, content: [{ type: "text", text: JSON.stringify(context) }] }); } catch (_) { /* ui/message remains the portable fallback. */ }
+            await request("ui/message", { role: "user", content: [{ type: "text", text: text.apply(configuration.guide.title) }] });
+            elements.status.textContent = text.submitted;
+          } catch (error) { elements.status.textContent = error?.message || text.hostUnavailable; }
+          finally { elements.submit.disabled = false; elements.submit.textContent = text.submit; }
+        }
+
+        elements.profile.addEventListener("change", () => { const profile = configuration.guide.profiles.find((candidate) => candidate.id === elements.profile.value); configuration.draft = { ...configuration.draft, profile: profile.id, ...profile.defaults }; renderPolicyFields(); });
+        elements.addRule.addEventListener("click", () => addRule()); elements.form.addEventListener("submit", submit);
+        window.addEventListener("message", (event) => {
+          if (event.source !== window.parent) return; const message = event.data; if (!message || message.jsonrpc !== "2.0") return;
+          if (message.id !== undefined && pending.has(message.id)) { const pendingRequest = pending.get(message.id); pending.delete(message.id); if (message.error) pendingRequest.reject(message.error); else pendingRequest.resolve(message.result); return; }
+          if (message.method === "ui/notifications/tool-result") render(message.params?.structuredContent || message.params);
+        }, { passive: true });
+        async function connect() {
+          try {
+            await request("ui/initialize", { protocolVersion: APP_PROTOCOL_VERSION, appInfo: { name: "project-bootstrap-workspace-guide-configurator", title: "Project Bootstrap Workspace Guide Configurator", version: APP_VERSION }, appCapabilities: { availableDisplayModes: ["inline"] } });
+            notify("ui/notifications/initialized", {});
+          } catch (_) { elements.status.textContent = copy().hostUnavailable; }
+          render(window.openai?.toolOutput?.structuredContent || window.openai?.toolOutput);
+        }
+        connect();
+      })();
+    </script>
+  </body>
+</html>

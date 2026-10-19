@@ -43,9 +43,12 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /workspace-guide-interview\.md/);
   assert.match(skill, /agents-authoring\.md/);
   assert.match(skill, /list_workspace_guide_policies/);
+  assert.match(skill, /render_workspace_guide_configurator/);
+  assert.match(skill, /submit_workspace_guide_configuration/);
+  assert.match(skill, /configurator replaces separate profile and field questions/);
   assert.match(skill, /collaborationHost/);
   assert.match(skill, /Ask `\.github\/pull_request_template\.md` only when `collaborationHost` is `github`/);
-  assert.match(skill, /Ask the profile question for one applicable guide at a time/);
+  assert.match(skill, /Configure one applicable guide at a time/);
   assert.match(skill, /Pass both `guideDecisions` and `workspaceSettings`/);
   assert.match(skill, /`agentsGuide` evidence and template preview/);
   assert.match(skill, /AGENTS_REPOSITORY_MAP/);
@@ -100,6 +103,8 @@ test("workspace guide templates and interview reference retain reviewed decision
     assert.match(interview, new RegExp(heading.replace(".", "\\.")));
   }
   assert.match(interview, /## 0\. Collaboration host/);
+  assert.match(interview, /Workspace Guide Configurator/);
+  assert.match(interview, /do not repeat these questions after a configurator submission/);
   assert.match(interview, /`collaborationHost` is `github`/);
 
   const agentsAuthoring = fs.readFileSync(

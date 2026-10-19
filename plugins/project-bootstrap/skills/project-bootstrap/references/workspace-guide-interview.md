@@ -2,7 +2,9 @@
 
 Read this reference only after the catalogue selection is valid and before create_plan. Call `list_workspace_guide_policies` first; its schema version, profile IDs, defaults, and field values are authoritative. This reference provides the interview wording and sequencing only.
 
-Ask one question at a time with the host structured-choice control when available. Each question includes Other — describe your policy. Record both the selected profile and any comment. A profile selection only configures the pending plan; it never approves file writes or commands.
+For each applicable guide, call `render_workspace_guide_configurator` after the guide's purpose and current evidence have been presented. The **Workspace Guide Configurator** UI configures exactly one guide at a time, dynamically exposes the selected profile's allowed fields, and preserves the free-text custom-policy path. For `AGENTS.md`, it additionally collects structured `rules` entries with a relative scope, invariant, and safe alternative. On submit, call `submit_workspace_guide_configuration`; use the normalized decision it returns as the user's answer for that guide only. Do not treat the UI submission as approval to write files or run commands, and do not use it to edit `.codex/config.toml` or hosted-repository settings.
+
+Use the Workspace Guide Configurator as the default editor for the active guide. The individual question wording below is the fallback only when the MCP Apps UI is unavailable; do not repeat these questions after a configurator submission for that guide. In fallback mode, ask one question at a time with the host structured-choice control when available. Each question includes Other — describe your policy. Record both the selected profile and any comment. A profile selection only configures the pending plan; it never approves file writes or commands.
 
 ## Decision object
 
@@ -44,7 +46,7 @@ Use the policy catalogue's `structuredFields` when supplied context needs more p
 
 - `projectContext`: the user's concise purpose or operating context, without inventing features.
 - `rules`: objects with a repository-relative `scope`, a confirmed `invariant`, and a `safeAlternative`.
-- `reviewedCommands`: exact `command`, relative `workingDirectory`, `kind`, `stage`, `effects`, optional `covers` directories, and `confirmed: true`. Use this to record a user-confirmed setup, verification or generation declaration. This does not authorize execution. Keep missing tool/environment requirements visible.
+- `reviewedCommands`: exact `command`, relative `workingDirectory`, `kind`, `stage`, `effects`, optional `covers` directories, and `confirmed: true`. Use this to record a user-confirmed setup, verification or generation declaration. This does not authorize execution. Keep missing tool/environment requirements visible. The configurator displays existing confirmed commands as read-only and preserves them on save; return to this declaration flow to change them.
 
 The final `agentsGuide.markdown` is already localized and policy-aware. Minimal routing omits optional sections; full-suite verification changes the completion criterion. Any `supportingDocuments` are part of the file plan and must be reviewed for conflicts just like the root guide.
 
