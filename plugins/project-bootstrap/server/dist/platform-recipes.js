@@ -38,6 +38,22 @@ function reactProviders(target) {
   return `\n${imports.join("\n")}\nexport default function Providers({ children }: { children: ReactNode }) { return ${tree}; }\n`;
 }
 
+function reactReadyPanel(target, statePath, native = false) {
+  const zustand = ["web.zustand", "expo.zustand", "desktop.zustand"].some((id) => has(target, id));
+  const redux = ["web.redux", "expo.redux", "desktop.redux"].some((id) => has(target, id));
+  const imports = ["'use client';"];
+  if (native) imports.push("import { Button, Text, View } from 'react-native';");
+  if (zustand) imports.push(`import { useAppState } from '${statePath}/app-state';`);
+  else if (redux) imports.push("import { useDispatch, useSelector } from 'react-redux';", `import { ready as markReady, type RootState } from '${statePath}/store';`);
+  else imports.push("import { useState } from 'react';");
+  const hook = zustand ? "const ready = useAppState((state) => state.ready); const setReady = useAppState((state) => state.setReady); const onReady = () => setReady(true);"
+    : redux ? "const ready = useSelector((state: RootState) => state.app.ready); const dispatch = useDispatch(); const onReady = () => dispatch(markReady());"
+      : "const [ready, setReady] = useState(false); const onReady = () => setReady(true);";
+  const view = native ? "<View><Text>{ready ? 'Project ready' : 'Preparing'}</Text><Button title='Mark ready' onPress={onReady} /></View>"
+    : "<main><h1>{ready ? 'Project ready' : 'Preparing'}</h1><button onClick={onReady}>Mark ready</button></main>";
+  return `${imports.join("\n")}\nexport default function ReadyPanel() { ${hook} return ${view}; }\n`;
+}
+
 function webRecipe(target) {
   const next = has(target, "web.nextjs");
   const deps = { react: "^19.0.0", "react-dom": "^19.0.0", ...reactDependencies(target) };
@@ -59,19 +75,21 @@ function webRecipe(target) {
     files.push(artifact(target, "tsconfig.json", json({ compilerOptions: { target: "ES2017", lib: ["dom", "dom.iterable", "esnext"], allowJs: true, skipLibCheck: true, strict: true, noEmit: true, esModuleInterop: true, module: "esnext", moduleResolution: "bundler", resolveJsonModule: true, isolatedModules: true, jsx: "react-jsx", incremental: true, plugins: [{ name: "next" }], paths: { "@/*": ["./src/*"] } }, include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"], exclude: ["node_modules"] })));
     files.push(artifact(target, "next-env.d.ts", "/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n"));
     files.push(artifact(target, "src/app/layout.tsx", "import type { ReactNode } from 'react';\nimport Providers from '../providers';\nexport default function RootLayout({ children }: { children: ReactNode }) { return <html lang=\"en\"><body><Providers>{children}</Providers></body></html>; }\n"));
-    files.push(artifact(target, "src/app/page.tsx", "export default function Home() { return <main><h1>Project ready</h1></main>; }\n"));
+    files.push(artifact(target, "src/app/page.tsx", "import ReadyPanel from './ready-panel';\nexport default function Home() { return <ReadyPanel />; }\n"));
+    files.push(artifact(target, "src/app/ready-panel.tsx", reactReadyPanel(target, "../state")));
   } else {
     files.push(artifact(target, "package.json", json({ private: true, type: "module", scripts: { dev: "vite", build: "tsc --noEmit && vite build", test: "vitest run", "test:e2e": "playwright test" }, dependencies: deps, devDependencies: { ...dev, "@vitejs/plugin-react": "^6.0.0" } })));
     files.push(artifact(target, "tsconfig.json", json({ compilerOptions: { target: "ES2022", module: "ESNext", moduleResolution: "Bundler", jsx: "react-jsx", strict: true, noEmit: true, skipLibCheck: true }, include: ["src", "vite.config.ts"] })));
     files.push(artifact(target, "vite.config.ts", "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\nexport default defineConfig({ plugins: [react()] });\n"));
     files.push(artifact(target, "index.html", "<!doctype html><html><head><meta charset=\"UTF-8\" /><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" /></head><body><div id=\"root\"></div><script type=\"module\" src=\"/src/main.tsx\"></script></body></html>\n"));
     files.push(artifact(target, "src/main.tsx", "import React from 'react';\nimport { createRoot } from 'react-dom/client';\nimport App from './App';\nimport Providers from './providers';\ncreateRoot(document.getElementById('root')!).render(<React.StrictMode><Providers><App /></Providers></React.StrictMode>);\n"));
-    files.push(artifact(target, "src/App.tsx", "export default function App() { return <main><h1>Project ready</h1></main>; }\n"));
+    files.push(artifact(target, "src/App.tsx", reactReadyPanel(target, "./state")));
   }
   if (has(target, "web.tanstack-query")) files.push(artifact(target, "src/state/query-client.ts", "import { QueryClient } from '@tanstack/react-query';\nexport const queryClient = new QueryClient();\n"));
   files.push(artifact(target, "tests/smoke.test.ts", "import { expect, test } from 'vitest';\ntest('project baseline', () => expect(true).toBe(true));\n"));
-  files.push(artifact(target, "playwright.config.ts", "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ testDir: './tests/e2e' });\n"));
-  return { artifacts: files, commands: [command(target, "npm install", "Install the reviewed package manifest.", "downloads dependencies"), ...(next && target.choices.database ? [command(target, "npx prisma generate", "Generate the reviewed Prisma database client after dependency installation.", "may download Prisma engines")] : [])], checks: ["npm run build", "npm test"] };
+  files.push(artifact(target, "tests/e2e/smoke.e2e.ts", "import { expect, test } from '@playwright/test';\ntest('selected state drives the starter page', async ({ page }) => { await page.goto('/'); await expect(page.getByRole('heading', { name: 'Preparing' })).toBeVisible(); await page.getByRole('button', { name: 'Mark ready' }).click(); await expect(page.getByRole('heading', { name: 'Project ready' })).toBeVisible(); });\n"));
+  files.push(artifact(target, "playwright.config.ts", `import { defineConfig } from '@playwright/test';\nexport default defineConfig({ testDir: './tests/e2e', testMatch: '**/*.e2e.ts', use: { baseURL: 'http://127.0.0.1:3100', browserName: 'chromium' }, webServer: { command: 'npm run dev -- ${next ? "--hostname" : "--host"} 127.0.0.1 --port 3100', url: 'http://127.0.0.1:3100', reuseExistingServer: false, timeout: 120000 } });\n`));
+  return { artifacts: files, commands: [command(target, "npm install", "Install the reviewed package manifest.", "downloads dependencies"), ...(next && target.choices.database ? [command(target, "npx prisma generate", "Generate the reviewed Prisma database client after dependency installation.", "may download Prisma engines")] : [])], checks: ["npm run build", "npm test", "npx playwright install chromium", "npm run test:e2e"] };
 }
 
 function apiRecipe(target) {
@@ -183,7 +201,7 @@ function expoRecipe(target) {
       artifact(target, "app.json", json({ expo: { name: target.id, slug: target.id, scheme: target.id, plugins: ["expo-router", "expo-status-bar"], experiments: { typedRoutes: true } } })),
       artifact(target, "tsconfig.json", json({ extends: "expo/tsconfig.base", compilerOptions: { strict: true } })),
       artifact(target, "app/_layout.tsx", "import { Stack } from 'expo-router';\nimport Providers from '../src/providers';\nexport default function Layout() { return <Providers><Stack /></Providers>; }\n"),
-      artifact(target, "app/index.tsx", "import { Text, View } from 'react-native';\nexport default function Home() { return <View><Text>Project ready</Text></View>; }\n"),
+      artifact(target, "app/index.tsx", reactReadyPanel(target, "../src/state", true)),
       artifact(target, "tests/baseline.test.ts", "test('baseline', () => expect(true).toBe(true));\n")];
   if (has(target, "expo.sqlite")) files.push(artifact(target, "src/data/database.ts", "import * as SQLite from 'expo-sqlite';\nexport const openLocalDatabase = () => SQLite.openDatabaseAsync('app.db');\n"));
   return {
@@ -204,13 +222,23 @@ function flutterRecipe(target) {
     : has(target, "flutter.riverpod")
       ? "import 'package:flutter_riverpod/flutter_riverpod.dart';\nfinal readyProvider = StateProvider<bool>((ref) => false);\n"
       : "import 'package:flutter/foundation.dart';\nclass ReadyModel extends ChangeNotifier { bool ready = false; void markReady() { ready = true; notifyListeners(); } }\n";
+  const bloc = has(target, "flutter.bloc");
+  const riverpod = has(target, "flutter.riverpod");
+  const stateImport = bloc ? "import 'package:flutter_bloc/flutter_bloc.dart';\n" : riverpod ? "import 'package:flutter_riverpod/flutter_riverpod.dart';\n" : "";
+  const route = bloc ? "BlocProvider(create: (_) => ReadyBloc(), child: const ReadyScreen())" : "const ReadyScreen()";
+  const app = bloc ? "const BootstrapApp()" : riverpod ? "const ProviderScope(child: BootstrapApp())" : "const BootstrapApp()";
+  const screen = bloc
+    ? "class ReadyScreen extends StatelessWidget { const ReadyScreen({super.key}); @override Widget build(BuildContext context) => BlocBuilder<ReadyBloc, bool>(builder: (context, ready) => Scaffold(body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Text(ready ? 'Project ready' : 'Preparing'), ElevatedButton(onPressed: () => context.read<ReadyBloc>().add(MarkReady()), child: const Text('Mark ready'))])))); }\n"
+    : riverpod
+      ? "class ReadyScreen extends ConsumerWidget { const ReadyScreen({super.key}); @override Widget build(BuildContext context, WidgetRef ref) { final ready = ref.watch(readyProvider); return Scaffold(body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Text(ready ? 'Project ready' : 'Preparing'), ElevatedButton(onPressed: () => ref.read(readyProvider.notifier).state = true, child: const Text('Mark ready'))]))); } }\n"
+      : "class ReadyScreen extends StatefulWidget { const ReadyScreen({super.key}); @override State<ReadyScreen> createState() => _ReadyScreenState(); }\nclass _ReadyScreenState extends State<ReadyScreen> { final model = ReadyModel(); @override void dispose() { model.dispose(); super.dispose(); } @override Widget build(BuildContext context) => AnimatedBuilder(animation: model, builder: (context, _) => Scaffold(body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Text(model.ready ? 'Project ready' : 'Preparing'), ElevatedButton(onPressed: model.markReady, child: const Text('Mark ready'))])))); }\n";
   return {
     artifacts: [record(target),
       artifact(target, "pubspec.yaml", `name: ${name}\ndescription: Reviewed Flutter project skeleton\npublish_to: none\nversion: 0.1.0+1\nenvironment:\n  sdk: '>=3.5.0 <4.0.0'\ndependencies:\n  flutter:\n    sdk: flutter\n${extras.join("\n")}\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n  flutter_lints: ^6.0.0\nflutter:\n  uses-material-design: true\n`),
-      artifact(target, "lib/main.dart", "import 'package:flutter/material.dart';\nimport 'package:go_router/go_router.dart';\nvoid main() => runApp(const BootstrapApp());\nfinal router = GoRouter(routes: [GoRoute(path: '/', builder: (_, __) => const Scaffold(body: Center(child: Text('Project ready'))))]);\nclass BootstrapApp extends StatelessWidget { const BootstrapApp({super.key}); @override Widget build(BuildContext context) => MaterialApp.router(routerConfig: router); }\n"),
+      artifact(target, "lib/main.dart", `import 'package:flutter/material.dart';\nimport 'package:go_router/go_router.dart';\n${stateImport}import 'state/ready_state.dart';\nvoid main() => runApp(${app});\nfinal router = GoRouter(routes: [GoRoute(path: '/', builder: (_, __) => ${route})]);\nclass BootstrapApp extends StatelessWidget { const BootstrapApp({super.key}); @override Widget build(BuildContext context) => MaterialApp.router(routerConfig: router); }\n${screen}`),
       artifact(target, "lib/state/ready_state.dart", stateFile),
       ...(has(target, "flutter.sqflite") ? [artifact(target, "lib/data/local_database.dart", "import 'package:sqflite/sqflite.dart';\nFuture<Database> openLocalDatabase() => openDatabase('app.db');\n")] : []),
-      artifact(target, "test/app_test.dart", "import 'package:flutter_test/flutter_test.dart';\nvoid main() { test('baseline', () => expect(1 + 1, 2)); }\n")],
+      artifact(target, "test/app_test.dart", `import 'package:flutter_test/flutter_test.dart';\n${riverpod ? "import 'package:flutter_riverpod/flutter_riverpod.dart';\n" : ""}import 'package:${name}/main.dart';\nvoid main() { testWidgets('selected state drives the screen', (tester) async { await tester.pumpWidget(${app}); await tester.pumpAndSettle(); expect(find.text('Preparing'), findsOneWidget); await tester.tap(find.text('Mark ready')); await tester.pumpAndSettle(); expect(find.text('Project ready'), findsOneWidget); }); }\n`)],
     commands: [{ ...command(target, `flutter create --no-pub --project-name ${name} ${target.path}`, "Generate Flutter platform directories before applying the reviewed overlay."), workingDirectory: "." }, command(target, "flutter pub get", "Resolve reviewed Flutter dependencies.", "downloads dependencies")],
     checks: ["flutter analyze", "flutter test"]
   };
@@ -219,10 +247,17 @@ function flutterRecipe(target) {
 function androidRecipe(target) {
   const mvi = has(target, "android.mvi");
   const hilt = has(target, "android.hilt");
-  const stateDependency = has(target, "android.orbit") ? "implementation(\"org.orbit-mvi:orbit-viewmodel:6.1.0\")" : has(target, "android.mavericks") ? "implementation(\"com.airbnb.android:mavericks:3.0.2\")" : "";
+  const stateDependency = has(target, "android.orbit") ? "implementation(\"org.orbit-mvi:orbit-viewmodel:6.1.0\")" : has(target, "android.mavericks") ? "implementation(\"com.airbnb.android:mavericks:3.0.2\"); implementation(\"com.airbnb.android:mavericks-compose:3.0.2\")" : "";
   const diDependency = hilt ? "implementation(\"com.google.dagger:hilt-android:2.52\"); kapt(\"com.google.dagger:hilt-compiler:2.52\")" : "implementation(\"io.insert-koin:koin-android:4.0.0\")";
   const room = has(target, "android.room") ? "implementation(\"androidx.room:room-runtime:2.6.1\"); kapt(\"androidx.room:room-compiler:2.6.1\")" : "";
   const kapt = hilt || has(target, "android.room");
+  const mavericks = has(target, "android.mavericks");
+  const stateRead = mavericks
+    ? "val viewModel = mavericksViewModel<ScreenViewModel, ScreenState>()\n  val ready by viewModel.collectAsState(ScreenState::ready)"
+    : has(target, "android.orbit")
+      ? "val viewModel: ScreenViewModel = viewModel()\n  val state by viewModel.container.stateFlow.collectAsStateWithLifecycle()\n  val ready = state.ready"
+      : "val viewModel: ScreenViewModel = viewModel()\n  val state by viewModel.state.collectAsStateWithLifecycle()\n  val ready = state.ready";
+  const stateAction = mavericks || has(target, "android.orbit") || !mvi ? "viewModel.markReady()" : "viewModel.onIntent(ScreenIntent.MarkReady)";
   return {
     artifacts: [record(target),
       artifact(target, "settings.gradle.kts", "pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }\ndependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }\nrootProject.name = \"BootstrapAndroid\"\ninclude(\":app\")\n"),
@@ -231,9 +266,9 @@ function androidRecipe(target) {
       artifact(target, "app/build.gradle.kts", `plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id("org.jetbrains.kotlin.plugin.compose")${kapt ? '; id("org.jetbrains.kotlin.kapt")' : ""}${hilt ? '; id("com.google.dagger.hilt.android")' : ""} }\nandroid { namespace = "example.bootstrap"; compileSdk = 35; defaultConfig { applicationId = "example.bootstrap"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "0.1" }; buildFeatures { compose = true }; compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 } }\ndependencies { implementation(platform("androidx.compose:compose-bom:2024.10.00")); implementation("androidx.activity:activity-compose:1.9.3"); implementation("androidx.compose.material3:material3"); implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7"); implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7"); ${stateDependency}; ${diDependency}; ${room}; testImplementation("junit:junit:4.13.2"); androidTestImplementation(platform("androidx.compose:compose-bom:2024.10.00")); androidTestImplementation("androidx.compose.ui:ui-test-junit4"); debugImplementation("androidx.compose.ui:ui-test-manifest") }\n`),
       artifact(target, "app/src/main/AndroidManifest.xml", "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:name=\".BootstrapApplication\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\" android:label=\"Bootstrap\"><activity android:name=\".MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n"),
       artifact(target, "app/src/main/java/example/bootstrap/BootstrapApplication.kt", hilt
-        ? "package example.bootstrap\nimport android.app.Application\nimport dagger.hilt.android.HiltAndroidApp\n@HiltAndroidApp class BootstrapApplication : Application()\n"
-        : "package example.bootstrap\nimport android.app.Application\nimport org.koin.android.ext.koin.androidContext\nimport org.koin.core.context.startKoin\nimport org.koin.dsl.module\nclass BootstrapApplication : Application() { override fun onCreate() { super.onCreate(); startKoin { androidContext(this@BootstrapApplication); modules(module { }) } } }\n"),
-      artifact(target, "app/src/main/java/example/bootstrap/MainActivity.kt", `package example.bootstrap\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.Text\n${hilt ? "import dagger.hilt.android.AndroidEntryPoint\n@AndroidEntryPoint " : ""}class MainActivity : ComponentActivity() { override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { Text("Project ready") } } }\n`),
+        ? `package example.bootstrap\nimport android.app.Application\nimport dagger.hilt.android.HiltAndroidApp\n${mavericks ? "import com.airbnb.mvrx.Mavericks\n" : ""}@HiltAndroidApp class BootstrapApplication : Application()${mavericks ? " { override fun onCreate() { super.onCreate(); Mavericks.initialize(this) } }" : ""}\n`
+        : `package example.bootstrap\nimport android.app.Application\nimport org.koin.android.ext.koin.androidContext\nimport org.koin.core.context.startKoin\nimport org.koin.dsl.module\n${mavericks ? "import com.airbnb.mvrx.Mavericks\n" : ""}class BootstrapApplication : Application() { override fun onCreate() { super.onCreate(); ${mavericks ? "Mavericks.initialize(this); " : ""}startKoin { androidContext(this@BootstrapApplication); modules(module { }) } } }\n`),
+      artifact(target, "app/src/main/java/example/bootstrap/MainActivity.kt", `package example.bootstrap\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.foundation.layout.Column\nimport androidx.compose.material3.Button\nimport androidx.compose.material3.Text\n${mavericks ? "import com.airbnb.mvrx.compose.mavericksViewModel\nimport com.airbnb.mvrx.compose.collectAsState\nimport androidx.compose.runtime.getValue\n" : "import androidx.lifecycle.viewmodel.compose.viewModel\nimport androidx.lifecycle.compose.collectAsStateWithLifecycle\nimport androidx.compose.runtime.getValue\n"}${hilt ? "import dagger.hilt.android.AndroidEntryPoint\n@AndroidEntryPoint " : ""}class MainActivity : ComponentActivity() { override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent {\n  ${stateRead}\n  Column { Text(if (ready) "Project ready" else "Preparing"); Button(onClick = { ${stateAction} }) { Text("Mark ready") } }\n} } }\n`),
       artifact(target, "app/src/main/java/example/bootstrap/ScreenViewModel.kt", has(target, "android.mavericks")
         ? "package example.bootstrap\nimport com.airbnb.mvrx.MavericksState\nimport com.airbnb.mvrx.MavericksViewModel\ndata class ScreenState(val ready: Boolean = false) : MavericksState\nclass ScreenViewModel(initialState: ScreenState) : MavericksViewModel<ScreenState>(initialState) { fun markReady() = setState { copy(ready = true) } }\n"
         : has(target, "android.orbit")
@@ -252,16 +287,17 @@ function iosRecipe(target) {
   const packages = tca ? "packages:\n  ComposableArchitecture:\n    url: https://github.com/pointfreeco/swift-composable-architecture\n    exactVersion: 1.26.2\n" : "";
   const dependencies = tca ? "    dependencies:\n      - package: ComposableArchitecture\n" : "";
   const files = [record(target),
-      artifact(target, "project.yml", `name: BootstrapIOS\noptions:\n  bundleIdPrefix: example\n${packages}targets:\n  BootstrapIOS:\n    type: application\n    platform: iOS\n    deploymentTarget: "17.0"\n    sources: [Sources]\n${dependencies}    settings:\n      base:\n        SWIFT_VERSION: "5.9"\n        GENERATE_INFOPLIST_FILE: YES\n        PRODUCT_BUNDLE_IDENTIFIER: example.BootstrapIOS\n`),
+      artifact(target, "project.yml", `name: BootstrapIOS\noptions:\n  bundleIdPrefix: example\n${packages}targets:\n  BootstrapIOS:\n    type: application\n    platform: iOS\n    deploymentTarget: "17.0"\n    sources: [Sources]\n${dependencies}    scheme:\n      testTargets:\n        - BootstrapIOSTests\n    settings:\n      base:\n        SWIFT_VERSION: "5.9"\n        GENERATE_INFOPLIST_FILE: YES\n        PRODUCT_BUNDLE_IDENTIFIER: example.BootstrapIOS\n  BootstrapIOSTests:\n    type: bundle.unit-test\n    platform: iOS\n    deploymentTarget: "17.0"\n    sources: [Tests]\n    dependencies:\n      - target: BootstrapIOS\n    settings:\n      base:\n        SWIFT_VERSION: "5.9"\n        GENERATE_INFOPLIST_FILE: YES\n`),
       artifact(target, "Sources/BootstrapApp.swift", `import SwiftUI\n${swiftData ? "import SwiftData\n" : ""}${tca ? "import ComposableArchitecture\n" : ""}@main struct BootstrapApp: App { var body: some Scene { WindowGroup { ${tca ? "ContentView(store: Store(initialState: AppFeature.State()) { AppFeature() })" : "ContentView()"} }${swiftData ? ".modelContainer(for: BootstrapRecord.self)" : ""} } }\n`),
-      artifact(target, "Sources/ContentView.swift", tca ? "import SwiftUI\nimport ComposableArchitecture\nstruct ContentView: View { let store: StoreOf<AppFeature>; var body: some View { WithViewStore(store, observe: \\.ready) { viewStore in Text(viewStore.state ? \"Project ready\" : \"Preparing\").onAppear { viewStore.send(.appeared) } } } }\n" : "import SwiftUI\nstruct ContentView: View { var body: some View { Text(\"Project ready\") } }\n"),
+      artifact(target, "Sources/ContentView.swift", tca ? "import SwiftUI\nimport ComposableArchitecture\nstruct ContentView: View { let store: StoreOf<AppFeature>; var body: some View { WithViewStore(store, observe: \\.ready) { viewStore in Text(viewStore.state ? \"Project ready\" : \"Preparing\").onAppear { viewStore.send(.appeared) } } } }\n" : "import SwiftUI\nstruct ContentView: View { @State private var model = AppModel(); var body: some View { VStack { Text(model.ready ? \"Project ready\" : \"Preparing\"); Button(\"Mark ready\") { model.ready = true } } } }\n"),
+      artifact(target, "Tests/BootstrapTests.swift", tca ? "import Testing\n@testable import BootstrapIOS\n@Test func featureStartsUnready() { #expect(AppFeature.State().ready == false) }\n" : "import Testing\n@testable import BootstrapIOS\n@Test func modelStartsUnready() { #expect(AppModel().ready == false) }\n"),
       ...(tca ? [] : [artifact(target, "Sources/AppModel.swift", "import Observation\n@Observable final class AppModel { var ready = false }\n")])];
   if (swiftData) files.push(artifact(target, "Sources/BootstrapRecord.swift", "import SwiftData\n@Model final class BootstrapRecord { var value: String; init(value: String) { self.value = value } }\n"));
   if (tca) files.push(artifact(target, "Sources/AppFeature.swift", "import ComposableArchitecture\nstruct AppFeature: Reducer { struct State: Equatable { var ready = false }; enum Action { case appeared }; var body: some ReducerOf<Self> { Reduce { state, action in switch action { case .appeared: state.ready = true; return .none } } } }\n"));
   return {
     artifacts: files,
     commands: [command(target, "xcodegen generate --spec project.yml", "On macOS, generate the Xcode project from the reviewed specification.", "may resolve Swift packages")],
-    checks: ["xcodebuild -project BootstrapIOS.xcodeproj -scheme BootstrapIOS -sdk iphonesimulator build"]
+    checks: ["xcodebuild -project BootstrapIOS.xcodeproj -scheme BootstrapIOS -destination 'platform=iOS Simulator,name=<available iPhone>' CODE_SIGNING_ALLOWED=NO test"]
   };
 }
 
@@ -278,7 +314,8 @@ function desktopRecipe(target) {
   const files = [record(target), reactStateArtifact(target), artifact(target, "src/providers.tsx", reactProviders(target)),
     artifact(target, "package.json", json({ name: "bootstrap-desktop", productName: "BootstrapDesktop", version: "0.1.0", author: "Project Bootstrap", private: true, ...(tauri ? { type: "module" } : { main: ".vite/build/main.js" }), scripts: { dev: tauri ? "tauri dev" : "electron-forge start", build: tauri ? "tauri build" : "electron-forge make", ...(tauri ? { predev: "tauri icon app-icon.svg", prebuild: "tauri icon app-icon.svg", "vite:dev": "vite --host 127.0.0.1", "vite:build": "vite build" } : {}), test: "vitest run" }, dependencies: deps, devDependencies: dev })),
     artifact(target, "index.html", "<!doctype html><html><body><div id=\"root\"></div><script type=\"module\" src=\"/src/main.tsx\"></script></body></html>\n"),
-    artifact(target, "src/main.tsx", "import React from 'react';\nimport { createRoot } from 'react-dom/client';\nimport Providers from './providers';\ncreateRoot(document.getElementById('root')!).render(<React.StrictMode><Providers><main>Project ready</main></Providers></React.StrictMode>);\n"),
+    artifact(target, "src/main.tsx", "import React from 'react';\nimport { createRoot } from 'react-dom/client';\nimport Providers from './providers';\nimport ReadyPanel from './ReadyPanel';\ncreateRoot(document.getElementById('root')!).render(<React.StrictMode><Providers><ReadyPanel /></Providers></React.StrictMode>);\n"),
+    artifact(target, "src/ReadyPanel.tsx", reactReadyPanel(target, "./state")),
     artifact(target, tauri ? "vite.config.ts" : "vite.renderer.config.mjs", "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\nexport default defineConfig({ plugins: [react()] });\n")];
   if (tauri) {
     files.push(artifact(target, "app-icon.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#1f2937"/><path d="M128 136h256v240H128z" fill="#ffffff"/><path d="M160 168h192v176H160z" fill="#2563eb"/></svg>\n'));

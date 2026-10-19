@@ -6,6 +6,20 @@ const WINDOWS_DEVICES = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 const hostName = () => process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
 const API_LANGUAGE_BY_FRAMEWORK = { "api.fastapi": "api.python", "api.nestjs": "api.typescript", "api.spring": "api.java", "api.ktor": "api.kotlin", "api.go": "api.go-language", "api.aspnet": "api.csharp" };
 const message = (status, code, targetId, detail, alternatives = []) => ({ status, code, targetId, message: detail, alternatives });
+const parseVersion = (value, field, targetId, messages) => {
+  if (value === undefined) return null;
+  if (!(typeof value === "number" && Number.isFinite(value) && value >= 0 && /^\d+(?:\.\d+){0,2}$/.test(String(value))) && !(typeof value === "string" && /^\d+(?:\.\d+){0,2}$/.test(value))) {
+    messages.push(message("block", "invalid-platform-version", targetId, `${field} must be a non-negative numeric version.`));
+    return null;
+  }
+  const parts = String(value).split(".").map(Number);
+  if (parts.some((part) => !Number.isSafeInteger(part))) {
+    messages.push(message("block", "invalid-platform-version", targetId, `${field} contains an unsafe version number.`));
+    return null;
+  }
+  return [...parts, ...Array(3 - parts.length).fill(0)];
+};
+const lessThan = (actual, minimum) => actual && actual.some((part, index) => part !== minimum[index] && actual.slice(0, index).every((earlier, i) => earlier === minimum[i]) && part < minimum[index]);
 
 function safeTargetPath(value) {
   if (typeof value !== "string" || !value || value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:/.test(value)) return false;
@@ -14,7 +28,7 @@ function safeTargetPath(value) {
   return parts.every((part) => part && part !== "." && part !== ".." && !part.endsWith(".") && !RESERVED.has(part.toLowerCase()) && !WINDOWS_DEVICES.test(part) && /^[A-Za-z0-9._-]+$/.test(part));
 }
 
-function normalizeCustom(value, targetId, messages) {
+function normalizeCustom(value, targetId, platform, messages) {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 12) {
     messages.push(message("block", "invalid-custom-choices", targetId, "customChoices must contain at most 12 entries."));
@@ -27,6 +41,10 @@ function normalizeCustom(value, targetId, messages) {
     if (!valid) {
       messages.push(message("block", "invalid-custom-choice", targetId, "A custom choice needs a valid slot, name, and purpose."));
       return [];
+    }
+    if (platform && !platform.slots[item.slot]) messages.push(message("block", "unknown-custom-slot", targetId, `${item.slot} is not a slot for this platform.`, Object.keys(platform.slots)));
+    if (item.replacesId !== undefined && (typeof item.replacesId !== "string" || !platform?.slots[item.slot]?.options.some((option) => option.id === item.replacesId))) {
+      messages.push(message("block", "invalid-custom-replacement", targetId, `${item.replacesId} is not an option in ${item.slot}.`, platform?.slots[item.slot]?.options.map((option) => option.id) || []));
     }
     messages.push(message("warning", "custom-research-required", targetId, `${item.name} needs permission-based official-source research and a separately approved integration plan before generation.`));
     return [{ slot: item.slot, name: item.name.trim(), purpose: item.purpose.trim(), ...(item.replacesId ? { replacesId: item.replacesId } : {}) }];
@@ -45,7 +63,11 @@ function validateTarget(raw, index, messages, requirements) {
     messages.push(message("block", "invalid-target-choices", id, "choices must be an object keyed by platform slot."));
   }
   const choices = {};
+  const customChoices = normalizeCustom(raw?.customChoices, id, platform, messages);
   if (platform) {
+    for (const [key, definition] of Object.entries(platform.slots)) {
+      if (!definition.multiple && customChoices.filter((choice) => choice.slot === key).length > 1) messages.push(message("block", "duplicate-custom-role", id, `Only one custom choice can replace ${key}.`));
+    }
     for (const [key, value] of Object.entries(rawChoices || {})) {
       const definition = platform.slots[key];
       if (!definition) {
@@ -70,13 +92,13 @@ function validateTarget(raw, index, messages, requirements) {
       const recommended = raw.platformId === "api" && key === "language" && choices.framework
         ? API_LANGUAGE_BY_FRAMEWORK[choices.framework]
         : recommendedPlatformDefault(raw.platformId, key, { ...requirements, preferredLanguage, architectureId: choices.architecture || requirements.architectureId });
-      if (choices[key] === undefined && raw?.useDefaults === true && recommended) choices[key] = recommended;
-      if (choices[key] === undefined && definition.required) {
+      const customReplacement = customChoices.some((choice) => choice.slot === key);
+      if (choices[key] === undefined && !customReplacement && raw?.useDefaults === true && recommended) choices[key] = recommended;
+      if (choices[key] === undefined && !customReplacement && definition.required) {
         messages.push(message("block", "missing-required-slot", id, `Choose ${raw.platformId}.${key} or explicitly accept its default.`, [recommended]));
       }
     }
   }
-  const customChoices = normalizeCustom(raw?.customChoices, id, messages);
   return { id, platformId: raw?.platformId, path: targetPath, choices, customChoices };
 }
 
@@ -121,35 +143,33 @@ export function validatePlatformSelection(selection, { inventory = {}, hostPlatf
     if (platformId === "ios" && hostPlatform !== "macos") messages.push(message("warning", "macos-required-for-ios-generation", id, "iOS choices can be planned here, but Xcode generation and build verification require macOS."));
     if (platformId === "desktop" && c.framework === "desktop.electron") messages.push(message("warning", "electron-forge-vite-experimental", id, "Electron Forge's Vite plugin is experimental; review its current release and generated build on every target OS."));
     const versions = requirements.platformVersions?.[id] || {};
-    if (platformId === "ios" && versions.iosDeploymentTarget !== undefined && Number(versions.iosDeploymentTarget) < 17) {
+    const parsed = Object.fromEntries(Object.entries(versions).map(([field, value]) => [field, parseVersion(value, field, id, messages)]));
+    if (platformId === "ios" && lessThan(parsed.iosDeploymentTarget, [17, 0, 0])) {
       messages.push(message("block", "ios17-required", id, "The SwiftUI Observation/SwiftData recipe requires iOS 17 or later.", ["17.0"]));
     }
-    if (platformId === "expo" && versions.expoSdk !== undefined && Number(versions.expoSdk) !== 58) {
+    if (platformId === "expo" && parsed.expoSdk && (parsed.expoSdk[0] !== 58 || parsed.expoSdk[1] !== 0 || parsed.expoSdk[2] !== 0)) {
       messages.push(message("block", "expo-sdk-mismatch", id, "The packaged Expo recipe targets SDK 58. Select that SDK or request a separately verified recipe.", ["58"]));
     }
-    if (platformId === "expo" && versions.nodeMajor !== undefined && Number(versions.nodeMajor) < 22) {
+    const nodeVersion = parsed.nodeMajor ? [parsed.nodeMajor[0], parsed.nodeMinor?.[0] ?? parsed.nodeMajor[1], parsed.nodeMajor[2]] : null;
+    if (platformId === "expo" && lessThan(nodeVersion, [22, 13, 0])) {
       messages.push(message("block", "expo-node-too-old", id, "Expo SDK 58 requires Node.js 22.13 or newer.", ["22.13+"]));
     }
-    if (platformId === "expo" && Number(versions.nodeMajor) === 22 && versions.nodeMinor !== undefined && Number(versions.nodeMinor) < 13) {
-      messages.push(message("block", "expo-node-too-old", id, "Expo SDK 58 requires Node.js 22.13 or newer.", ["22.13+"]));
+    if (["web", "desktop"].includes(platformId) && nodeVersion) {
+      if (lessThan(nodeVersion, [22, 13, 0]) || nodeVersion[0] % 2 === 1) messages.push(message("block", "node-test-toolchain-unsupported", id, "The packaged Vite 8 and Vitest 5 recipe requires a supported Node.js 22.13+ release.", ["22.13+", "24.x"]));
     }
-    if (["web", "desktop"].includes(platformId) && versions.nodeMajor !== undefined) {
-      const major = Number(versions.nodeMajor), minor = Number(versions.nodeMinor ?? 0);
-      if (major < 22 || major === 22 && minor < 13 || major % 2 === 1) messages.push(message("block", "node-test-toolchain-unsupported", id, "The packaged Vite 8 and Vitest 5 recipe requires a supported Node.js 22.13+ release.", ["22.13+", "24.x"]));
-    }
-    if (platformId === "api" && c.framework === "api.aspnet" && versions.dotnetMajor !== undefined && Number(versions.dotnetMajor) !== 10) {
+    if (platformId === "api" && c.framework === "api.aspnet" && parsed.dotnetMajor && parsed.dotnetMajor[0] !== 10) {
       messages.push(message("block", "dotnet-sdk-mismatch", id, "The ASP.NET Core recipe targets .NET 10 LTS.", ["10"]));
     }
-    if (platformId === "api" && c.framework === "api.go" && versions.goMinor !== undefined && Number(versions.goMinor) < 27) {
+    if (platformId === "api" && c.framework === "api.go" && parsed.goMinor && (parsed.goMinor[0] === 1 ? lessThan(parsed.goMinor, [1, 27, 0]) : parsed.goMinor[0] < 27)) {
       messages.push(message("block", "go-toolchain-too-old", id, "The Go module baseline is Go 1.27.", ["1.27+"]));
     }
-    if (platformId === "api" && c.framework === "api.spring" && versions.javaMajor !== undefined && Number(versions.javaMajor) < 17) {
+    if (platformId === "api" && c.framework === "api.spring" && lessThan(parsed.javaMajor, [17, 0, 0])) {
       messages.push(message("block", "spring-java-too-old", id, "Spring Boot 3.5.16 requires Java 17 or newer.", ["17+"]));
     }
-    if (platformId === "android" && versions.androidMinSdk !== undefined && Number(versions.androidMinSdk) < 26) {
+    if (platformId === "android" && lessThan(parsed.androidMinSdk, [26, 0, 0])) {
       messages.push(message("block", "android-min-sdk-mismatch", id, "The packaged Android recipe targets minSdk 26; a lower target needs a separately tested recipe.", ["26"]));
     }
-    if (platformId === "flutter" && versions.dartSdk !== undefined && Number(versions.dartSdk) < 3.5) {
+    if (platformId === "flutter" && lessThan(parsed.dartSdk, [3, 5, 0])) {
       messages.push(message("block", "flutter-dart-too-old", id, "The packaged Flutter recipe requires Dart 3.5 or newer.", ["3.5+"]));
     }
     if (c.auth === "security.oidc") messages.push(message("warning", "oidc-provider-required", id, "OIDC integration needs a reviewed issuer, client ID, redirect URI, and platform-specific PKCE or server flow."));
@@ -159,8 +179,8 @@ export function validatePlatformSelection(selection, { inventory = {}, hostPlatf
     if (Array.isArray(c.delivery) && c.delivery.includes("delivery.docker-compose") && ["android", "expo", "flutter", "ios", "desktop"].includes(platformId)) {
       messages.push(message("block", "compose-not-app-runtime", id, "Compose can run a backend or database service, not the native client app itself."));
     }
-    if (target.customChoices.some((choice) => choice.replacesId && Object.values(c).flat().includes(choice.replacesId))) {
-      messages.push(message("block", "custom-replacement-conflict", id, "A custom replacement and its replaced catalogue ID cannot both be active."));
+    for (const choice of target.customChoices) {
+      if (c[choice.slot] !== undefined) messages.push(message("block", "custom-replacement-conflict", id, `A custom ${choice.slot} and a catalogue ${choice.slot} cannot both be active.`));
     }
   }
   const existingFiles = Array.isArray(inventory.files) ? inventory.files : [];

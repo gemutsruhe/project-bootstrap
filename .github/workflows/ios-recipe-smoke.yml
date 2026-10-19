@@ -32,9 +32,11 @@ jobs:
       - run: node scripts/materialize-recipe-smoke.mjs ios ${{ matrix.choices }}
       - run: xcodegen generate --spec project.yml
         working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
-      - run: xcodebuild -project BootstrapIOS.xcodeproj -scheme BootstrapIOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -skipMacroValidation CODE_SIGNING_ALLOWED=NO build
+      - id: simulator
+        run: echo "udid=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))][0].udid')" >> "$GITHUB_OUTPUT"
+      - run: xcodebuild -project BootstrapIOS.xcodeproj -scheme BootstrapIOS -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' -skipMacroValidation CODE_SIGNING_ALLOWED=NO test
         if: matrix.name == 'tca'
         working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
-      - run: xcodebuild -project BootstrapIOS.xcodeproj -scheme BootstrapIOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - run: xcodebuild -project BootstrapIOS.xcodeproj -scheme BootstrapIOS -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' CODE_SIGNING_ALLOWED=NO test
         if: matrix.name != 'tca'
         working-directory: ${{ env.RECIPE_OUTPUT_DIR }}

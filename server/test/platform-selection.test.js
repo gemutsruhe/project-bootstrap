@@ -223,6 +223,72 @@ test("verified recipes remain approval-gated and existing files, Windows iOS, an
   assert.ok(fresh.artifacts.every((item) => item.operation === "create" && item.approvalRequired));
 });
 
+test("custom required-slot replacements pause for research without choosing a conflicting default", () => {
+  for (const useDefaults of [true, false]) {
+    const selected = selection(target("web", useDefaults ? {} : { architecture: "web.feature-modules", state: "web.react-state", testing: "web.vitest-playwright" }, { useDefaults, customChoices: [{ slot: "framework", name: "Custom web stack", purpose: "Existing company standard", replacesId: "web.nextjs" }] }));
+    const checked = validateSelection([], { selection: selected });
+    assert.notEqual(checked.status, "block", JSON.stringify(checked.messages));
+    assert.equal(checked.targets[0].choices.framework, undefined);
+    const plan = createPlatformPlan(selected);
+    assert.equal(plan.status, "needs-custom-research");
+    assert.equal(plan.artifacts.length, 0);
+    assert.equal(plan.commands.length, 0);
+  }
+  const wrongSlot = validateSelection([], { selection: selection(target("android", {}, { customChoices: [{ slot: "dataframe", name: "Polars", purpose: "Custom storage" }] })) });
+  assert.ok(wrongSlot.messages.some((item) => item.code === "unknown-custom-slot"));
+  const wrongReplacement = validateSelection([], { selection: selection(target("web", {}, { customChoices: [{ slot: "framework", name: "Custom", purpose: "Test", replacesId: "web.zustand" }] })) });
+  assert.ok(wrongReplacement.messages.some((item) => item.code === "invalid-custom-replacement"));
+  const explicitConflict = validateSelection([], { selection: selection(target("web", { framework: "web.nextjs" }, { customChoices: [{ slot: "framework", name: "Custom", purpose: "Test" }] })) });
+  assert.ok(explicitConflict.messages.some((item) => item.code === "custom-replacement-conflict"));
+});
+
+test("dotted platform versions are compared numerically and malformed versions block", () => {
+  const cases = [
+    ["ios", {}, "iosDeploymentTarget", "16.4.0", "ios17-required"],
+    ["flutter", {}, "dartSdk", "3.4.0", "flutter-dart-too-old"],
+    ["expo", {}, "nodeMajor", "22.12.0", "expo-node-too-old"],
+    ["web", {}, "nodeMajor", "22.12.0", "node-test-toolchain-unsupported"],
+    ["api", { framework: "api.go" }, "goMinor", "1.26.0", "go-toolchain-too-old"]
+  ];
+  for (const [platform, choices, field, value, code] of cases) {
+    const checked = validateSelection([], { selection: selection(target(platform, choices)), hostPlatform: "macos", requirements: { platformVersions: { [platform]: { [field]: value } } } });
+    assert.ok(checked.messages.some((item) => item.code === code), `${platform}.${field}=${value}: ${JSON.stringify(checked.messages)}`);
+  }
+  for (const value of ["abc", "", -1, "3.4.0-beta", "Infinity"]) {
+    const checked = validateSelection([], { selection: selection(target("flutter")), requirements: { platformVersions: { flutter: { dartSdk: value } } } });
+    assert.ok(checked.messages.some((item) => item.code === "invalid-platform-version"), String(value));
+  }
+  const current = validateSelection([], { selection: selection(target("flutter")), requirements: { platformVersions: { flutter: { dartSdk: "3.5.0" } } } });
+  assert.notEqual(current.status, "block");
+});
+
+test("selected state and test tools are wired into generated app recipes", () => {
+  const planned = (platform, overrides = {}) => renderPlatformRecipe(validateSelection([], { selection: selection(target(platform, overrides)), hostPlatform: "macos" }).targets[0]);
+  const file = (recipe, suffix) => recipe.artifacts.find((item) => item.path.endsWith(suffix))?.content;
+  for (const state of ["android.stateflow", "android.orbit", "android.mavericks"]) {
+    const recipe = planned("android", state === "android.stateflow" ? {} : { architecture: "android.mvi", state });
+    assert.match(file(recipe, "MainActivity.kt"), /ScreenViewModel/);
+    assert.match(file(recipe, "MainActivity.kt"), /Mark ready/);
+  }
+  for (const choices of [{}, { state: "flutter.riverpod" }, { architecture: "flutter.bloc-pattern", state: "flutter.bloc" }]) {
+    const recipe = planned("flutter", choices);
+    assert.match(file(recipe, "lib/main.dart"), /ready_state.dart/);
+    assert.match(file(recipe, "test/app_test.dart"), /testWidgets/);
+  }
+  const ios = planned("ios");
+  assert.match(file(ios, "Sources/ContentView.swift"), /AppModel/);
+  assert.match(file(ios, "project.yml"), /BootstrapIOSTests/);
+  assert.match(file(ios, "Tests/BootstrapTests.swift"), /@Test/);
+  const web = planned("web");
+  assert.match(file(web, "tests/e2e/smoke.e2e.ts"), /page\.goto/);
+  assert.match(file(web, "src/app/ready-panel.tsx"), /useState/);
+  assert.match(file(planned("web", { state: "web.zustand" }), "src/app/ready-panel.tsx"), /useAppState/);
+  assert.match(file(planned("web", { state: "web.redux" }), "src/app/ready-panel.tsx"), /useSelector/);
+  assert.match(file(planned("expo", { state: "expo.zustand" }), "app/index.tsx"), /useAppState/);
+  assert.match(file(planned("desktop", { state: "desktop.redux" }), "src/ReadyPanel.tsx"), /useSelector/);
+  assert.ok(web.checks.includes("npm run test:e2e"));
+});
+
 test("public MCP tools expose v2 while legacy selection remains available", async () => {
   const listed = await invokeTool("list_platform_choices", { platformId: "flutter" });
   assert.equal(listed.platforms.length, 1);
