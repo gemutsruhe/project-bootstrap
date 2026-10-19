@@ -9,3 +9,4 @@ tags: [ci, delivery]
 ---
 
 Generated workflow drafts must not contain deployment secrets or automatic production deployment.
+An active workflow requires a root npm manifest and lockfile, declared test and build scripts, and a reviewed Node.js version. Otherwise planning is deferred and no workflow file is written. A bootstrap-record-only check is not a substitute for application verification.

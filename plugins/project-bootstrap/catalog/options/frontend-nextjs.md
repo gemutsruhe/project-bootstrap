@@ -10,3 +10,4 @@ requires: [language.typescript]
 ---
 
 Choose rendering, data-fetching, and deployment boundaries in the architecture overview.
+For a new workspace, review whether the standard app belongs at the root or at `apps/web` in an explicitly selected monorepo. Generate the runtime scaffold first, re-inspect it, then separately approve the npm workspace manifest and dependency installation where needed.

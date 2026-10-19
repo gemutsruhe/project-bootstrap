@@ -9,7 +9,7 @@ tags: [web, fullstack, small-team, low-ops]
 stages: [mvp, production]
 languages: [typescript]
 base_score: 60
-suggests: [architecture.modular-monolith, repository.monorepo, language.typescript, frontend.nextjs, service.nestjs, data.postgresql, delivery.docker-compose, delivery.github-actions, security.oidc, testing.contract, observability.opentelemetry]
+suggests: [architecture.modular-monolith, language.typescript, frontend.nextjs, data.postgresql]
 ---
 
 Use this profile for product teams delivering one web experience and one API boundary. Start with a modular monolith unless independently deployable ownership is already clear.

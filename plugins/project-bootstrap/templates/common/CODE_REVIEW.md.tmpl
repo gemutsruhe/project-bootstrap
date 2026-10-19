@@ -7,6 +7,8 @@
 3. Check security and privacy: secrets, authentication/authorization, input handling, data exposure, and dependency risk.
 4. Check tests, observability, configuration, documentation, and rollout or migration safety where relevant.
 
+Apply context-specific checks only when the changed code uses them: persistent database state (pool lifetime, migrations, transactions, DB-backed tests), secret-bearing edit links (leakage, server-side authorization, expiry and rotation), and rate limiting (trusted client address and cross-instance behavior). Treat these as questions until code or test evidence establishes a finding.
+
 ## Reviewed review policy
 
 {{CODE_REVIEW_GUIDE_DECISIONS}}

@@ -1,16 +1,4 @@
-name: CI
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure selected runtime
-        run: echo "Choose and pin the runtime setup for {{PROJECT_NAME}} before enabling this workflow."
-      - name: Validate bootstrap records
-        run: test -f docs/project-bootstrap/decision-record.md
+# Retired as an active workflow template.
+# Use only the exact create_plan artifact content after the root npm scripts,
+# lockfile, and reviewed Node.js version make CI ready. A deferred plan writes
+# no workflow file.

@@ -17,7 +17,8 @@ test("MCP initialize exposes a tool-capable local server", async () => {
 test("MCP lists read-only planning tools and the Catalog Explorer UI tool", async () => {
   const result = await handleRequest({ jsonrpc: "2.0", id: 2, method: "tools/list" });
   const names = result.result.tools.map((tool) => tool.name);
-  assert.deepEqual(names, ["inspect_workspace", "list_catalog", "render_catalog_explorer", "submit_catalog_selection", "recommend", "validate_selection", "list_workspace_guide_policies", "render_workspace_guide_configurator", "submit_workspace_guide_configuration", "create_plan", "check_updates"]);
+  assert.deepEqual(names, ["inspect_workspace", "list_platform_choices", "list_catalog", "render_catalog_explorer", "submit_catalog_selection", "recommend", "validate_selection", "list_workspace_guide_policies", "render_workspace_guide_configurator", "submit_workspace_guide_configuration", "create_plan", "assess_implementation", "check_updates"]);
+  assert.equal(result.result.tools.find((tool) => tool.name === "assess_implementation").annotations.readOnlyHint, true);
   const explorer = result.result.tools.find((tool) => tool.name === "render_catalog_explorer");
   assert.equal(explorer._meta.ui.resourceUri, "ui://project-bootstrap/catalog-explorer-v2.html");
   assert.equal(explorer.annotations.readOnlyHint, true);
@@ -110,6 +111,21 @@ test("Catalog Explorer selection tool returns structured continuation input with
   assert.equal(result.result.structuredContent.selection.id, "profile.mobile-app");
   assert.equal(result.result.structuredContent.continuation.replaceOnlyCurrentDecision, true);
   assert.match(result.result.content[0].text, /Continue the guided plan/);
+});
+
+test("Catalog Explorer custom technology choice stays read-only planning input", async () => {
+  const rendered = await handleRequest({
+    jsonrpc: "2.0", id: 31, method: "tools/call",
+    params: { name: "render_catalog_explorer", arguments: { candidateIds: ["data.postgresql", "data.sqlite"], allowCustom: true, locale: "ko" } }
+  });
+  assert.equal(rendered.result.isError, false);
+  assert.equal(rendered.result.structuredContent.entries.at(-1).id, "custom");
+  const submitted = await handleRequest({
+    jsonrpc: "2.0", id: 32, method: "tools/call",
+    params: { name: "submit_catalog_selection", arguments: { candidateIds: ["data.postgresql", "data.sqlite", "custom"], selectedId: "custom", comment: "MariaDB for API persistence", locale: "ko" } }
+  });
+  assert.equal(submitted.result.isError, false);
+  assert.equal(submitted.result.structuredContent.selection.custom, true);
 });
 
 test("Catalog Explorer output is read-only structured data", async () => {

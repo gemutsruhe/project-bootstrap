@@ -80,10 +80,11 @@ test("parses flat YAML frontmatter with locale fields and lists", () => {
   assert.equal(parsed.body, "Body\n");
 });
 
-test("catalogue has the six required profiles and Korean fallback data", () => {
+test("catalogue has the seven required profiles and Korean fallback data", () => {
   const profiles = listCatalog(catalog, { kind: "profile", locale: "ko" });
-  assert.equal(profiles.length, 6);
+  assert.equal(profiles.length, 7);
   assert.ok(profiles.some((profile) => profile.id === "profile.web-fullstack" && /웹/.test(profile.label)));
+  assert.ok(profiles.some((profile) => profile.id === "profile.android-native" && /Android/.test(profile.label)));
   assert.ok(profiles.some((profile) => profile.id === "profile.interactive-mockup" && /목업/.test(profile.label)));
   assert.ok(profiles.every((profile) => profile.path.endsWith(".md")));
   assert.ok(catalog.length >= 30);
@@ -114,11 +115,141 @@ test("catalog explorer selection becomes validated planning input for the select
   assert.equal(selection.selection.kind, "profile");
   assert.equal(selection.selection.comment, "Mobile-first launch");
   assert.equal(selection.continuation.replaceOnlyCurrentDecision, true);
-  assert.ok(selection.selection.suggestedIds.includes("language.flutter"));
+  assert.ok(selection.selection.suggestedIds.includes("language.typescript"));
   assert.throws(
     () => submitCatalogSelection(catalog, { candidateIds: ["profile.web-fullstack"], selectedId: "profile.mobile-app" }),
     /one of the candidateIds/
   );
+});
+
+test("technology comparisons offer a structured custom choice without accepting it as a catalogue ID", () => {
+  const explorer = createCatalogExplorer(catalog, {
+    candidateIds: ["data.postgresql", "data.sqlite", "data.mysql"], allowCustom: true, locale: "ko"
+  });
+  assert.deepEqual(explorer.entries.map((entry) => entry.id), ["data.postgresql", "data.sqlite", "data.mysql", "custom"]);
+  assert.match(explorer.entries[3].summary, /자동 생성되지/);
+  const selected = submitCatalogSelection(catalog, {
+    candidateIds: explorer.entries.map((entry) => entry.id), selectedId: "custom",
+    comment: "MariaDB for the existing API database", locale: "ko"
+  });
+  assert.equal(selected.selection.custom, true);
+  assert.equal(selected.selection.kind, "data");
+  assert.match(selected.continuation.message, /customChoices/);
+  assert.throws(() => submitCatalogSelection(catalog, {
+    candidateIds: explorer.entries.map((entry) => entry.id), selectedId: "custom", comment: ""
+  }), /requires the technology name/);
+  assert.throws(() => createCatalogExplorer(catalog, {
+    candidateIds: ["profile.web-fullstack"], allowCustom: true
+  }), /non-profile/);
+});
+
+test("Android architecture and state implementation are independent reviewed choices", () => {
+  const recommendations = recommend(catalog, { requirements: { productType: "android" } });
+  assert.equal(recommendations[0].id, "profile.android-native");
+  assert.deepEqual(recommendations[0].template.ids, [
+    "architecture.modular-monolith", "language.kotlin", "mobile.android-native", "android.ui.mvvm", "android.state.jetpack"
+  ]);
+
+  const patterns = createCatalogExplorer(catalog, {
+    candidateIds: ["android.ui.mvvm", "android.ui.mvi"], allowCustom: true, locale: "ko"
+  });
+  assert.match(patterns.entries[2].label, /아키텍처/);
+  const libraries = createCatalogExplorer(catalog, {
+    candidateIds: ["android.state.jetpack", "android.state.mavericks", "android.state.orbit"], allowCustom: true, locale: "ko"
+  });
+  assert.match(libraries.entries[3].label, /상태관리/);
+
+  const baseline = ["language.kotlin", "mobile.android-native", "android.ui.mvvm", "android.state.jetpack"];
+  assert.equal(validateSelection(catalog, { selectedIds: baseline }).status, "pass");
+  assert.equal(validateSelection(catalog, { selectedIds: ["language.kotlin", "mobile.android-native", "android.ui.mvi", "android.state.mavericks"] }).status, "pass");
+  assert.equal(validateSelection(catalog, { selectedIds: ["language.kotlin", "mobile.android-native", "android.ui.mvvm", "android.state.mavericks"] }).status, "pass");
+  assert.equal(validateSelection(catalog, { selectedIds: ["language.kotlin", "mobile.android-native", "android.ui.mvi", "android.state.orbit"] }).status, "pass");
+  assert.equal(validateSelection(catalog, { selectedIds: ["language.kotlin", "mobile.android-native", "android.ui.mvvm", "android.state.orbit"] }).status, "block");
+  assert.equal(validateSelection(catalog, { selectedIds: [...baseline, "android.ui.mvi"] }).status, "block");
+  assert.equal(validateSelection(catalog, { selectedIds: [...baseline, "mobile.expo"] }).status, "block");
+  assert.equal(validateSelection(catalog, { selectedIds: ["android.state.mavericks"] }).status, "block");
+  assert.ok(validateSelection(catalog, { selectedIds: ["language.kotlin", "mobile.android-native"] }).messages
+    .some((message) => message.code === "android-ui-architecture-undecided"));
+
+  const plan = createPlan(catalog, { selectedIds: baseline, inventory: { files: [] } });
+  assert.equal(plan.status, "ready-with-warnings");
+  assert.ok(plan.scaffolds.some((scaffold) => scaffold.runtime === "android-native" && scaffold.operation === "manual-design-required"));
+  assert.match(plan.artifacts.find((artifact) => artifact.path === "docs/architecture/android-ui.md").content, /android.ui.mvvm/);
+  assert.match(plan.artifacts.find((artifact) => artifact.path === "docs/architecture/android-ui.md").content, /android.state.jetpack/);
+  assert.equal(plan.artifacts.some((artifact) => artifact.path === "build.gradle.kts"), false);
+  assert.equal(plan.commands.some((command) => /gradle|mavericks/i.test(command.command)), false);
+  const existing = createPlan(catalog, { selectedIds: baseline, inventory: { files: ["settings.gradle.kts", "app/build.gradle.kts", "app/src/main/AndroidManifest.xml"] } });
+  assert.ok(existing.scaffolds.some((scaffold) => scaffold.operation === "not-needed"));
+  const genericGradle = createPlan(catalog, { selectedIds: baseline, inventory: { files: ["settings.gradle.kts", "app/build.gradle.kts"] } });
+  assert.ok(genericGradle.scaffolds.some((scaffold) => scaffold.operation === "manual-design-required"));
+});
+
+test("scoped custom Android architecture and library choices are documented without dependencies", () => {
+  const customChoices = [
+    { category: "architecture", name: "Redux-style UI", purpose: "Existing team pattern", scope: "android", replacesId: "android.ui.mvvm" },
+    { category: "library", name: "Custom state store", purpose: "Shared internal implementation", scope: "android", replacesId: "android.state.jetpack" }
+  ];
+  const selectedIds = ["language.kotlin", "mobile.android-native"];
+  const validation = validateSelection(catalog, { selectedIds, customChoices });
+  assert.equal(validation.status, "warning");
+  assert.equal(validation.messages.some((message) => message.code === "android-ui-architecture-undecided"), false);
+  assert.equal(validation.messages.some((message) => message.code === "android-state-management-undecided"), false);
+  const moduleScoped = validateSelection(catalog, { selectedIds, customChoices: [
+    { ...customChoices[0], scope: "app/src/main" }, { ...customChoices[1], scope: "app/src/main" }
+  ] });
+  assert.equal(moduleScoped.messages.some((message) => message.code === "android-ui-architecture-undecided"), false);
+  const plan = createPlan(catalog, { selectedIds, customChoices, inventory: { files: [] } });
+  assert.match(plan.artifacts.find((artifact) => artifact.template === "custom-choice-record").content, /Redux-style UI/);
+  assert.match(plan.artifacts.find((artifact) => artifact.template === "android-ui-decision").content, /Redux-style UI/);
+  assert.equal(plan.artifacts.some((artifact) => artifact.path === "build.gradle.kts"), false);
+  assert.throws(() => validateSelection(catalog, { selectedIds, customChoices: [
+    { category: "architecture", name: "Redux-style UI", purpose: "Team pattern" }
+  ] }), /require a scope/);
+  assert.equal(validateSelection(catalog, { selectedIds: [...selectedIds, "android.ui.mvvm"], customChoices: [customChoices[0]] }).status, "block");
+});
+
+test("common templates are lean, catalogue-valid starting sets with database alternatives", () => {
+  const recommendations = recommend(catalog, { requirements: { productType: "web" } });
+  for (const profile of recommendations) {
+    assert.equal(profile.template.policy, "common-starting-point");
+    assert.deepEqual(profile.template.ids, profile.suggestedIds);
+    assert.notEqual(validateSelection(catalog, { selectedIds: [profile.id, ...profile.template.ids] }).status, "block", profile.id);
+    assert.equal(profile.template.ids.some((id) => id.startsWith("delivery.") || id === "messaging.nats"), false, profile.id);
+  }
+  assert.ok(listCatalog(catalog, { kind: "data" }).some((entry) => entry.id === "data.sqlite"));
+  assert.ok(listCatalog(catalog, { kind: "data" }).some((entry) => entry.id === "data.mysql"));
+});
+
+test("custom language, database, and tool decisions are reviewed and recorded without invented adapters", () => {
+  const customChoices = [
+    { category: "language", name: "Ruby", purpose: "Existing team expertise", scope: "services/api", replacesId: "language.python" },
+    { category: "database", name: "MariaDB", purpose: "Use the existing operational database", scope: "services/api", replacesId: "data.postgresql" },
+    { category: "tool", name: "Buildkite", purpose: "Use the existing CI host", scope: "repository" }
+  ];
+  const selectedIds = ["profile.api-service"];
+  const validation = validateSelection(catalog, { selectedIds, customChoices });
+  assert.equal(validation.status, "warning");
+  assert.equal(validation.customChoices.length, 3);
+  const plan = createPlan(catalog, { selectedIds, customChoices, inventory: { files: [] } });
+  const record = plan.artifacts.find((artifact) => artifact.template === "custom-choice-record");
+  assert.equal(record.operation, "create");
+  assert.match(record.content, /MariaDB/);
+  assert.deepEqual(plan.customChoices, customChoices);
+  assert.equal(plan.artifacts.some((artifact) => artifact.path === "pyproject.toml"), false);
+  assert.equal(plan.artifacts.some((artifact) => artifact.path === ".github/workflows/ci.yml"), false);
+  assert.equal(validateSelection(catalog, { selectedIds: ["data.postgresql"], customChoices: [customChoices[1]] }).status, "block");
+  assert.throws(() => validateSelection(catalog, { selectedIds, customChoices: [{ category: "database", name: "", purpose: "test" }] }), /Invalid custom choice name/);
+  assert.throws(() => validateSelection(catalog, { selectedIds, customChoices: [customChoices[0], customChoices[0]] }), /Duplicate custom choice/);
+  const multipleDatabases = validateSelection(catalog, { selectedIds: ["data.postgresql", "data.mysql"] });
+  assert.ok(multipleDatabases.messages.some((message) => message.code === "multiple-primary-databases"));
+  const ambiguous = validateSelection(catalog, { selectedIds: ["data.postgresql"], customChoices: [
+    { category: "database", name: "MariaDB", purpose: "Possible alternative" }
+  ] });
+  assert.ok(ambiguous.messages.some((message) => message.code === "custom-overlap-review" && message.status === "block"));
+  const existingRuntime = validateSelection(catalog, {
+    selectedIds: ["profile.api-service"], customChoices: [customChoices[0]], inventory: { state: "existing", languages: ["python"] }
+  });
+  assert.ok(existingRuntime.messages.some((message) => message.code === "custom-existing-runtime-review"));
 });
 
 test("each supported starting profile produces a non-writing review plan", () => {
@@ -126,6 +257,7 @@ test("each supported starting profile produces a non-writing review plan", () =>
     "profile.web-fullstack",
     "profile.api-service",
     "profile.mobile-app",
+    "profile.android-native",
     "profile.data-ai",
     "profile.multi-service-platform",
     "profile.interactive-mockup"
@@ -224,6 +356,69 @@ test("delivery and GitHub artifacts require explicit matching decisions", () => 
   assert.ok(paths.includes("docker-compose.yml"));
   assert.ok(paths.includes(".github/workflows/ci.yml"));
   assert.ok(paths.includes(".github/pull_request_template.md"));
+  assert.equal(plan.artifacts.find((artifact) => artifact.path === "docker-compose.yml").operation, "deferred");
+  assert.equal(plan.artifacts.find((artifact) => artifact.path === ".github/workflows/ci.yml").operation, "deferred");
+});
+
+test("CI is activated only from declared root npm checks and a lockfile", () => {
+  const files = ["package.json", "package-lock.json", "src/app/page.tsx"];
+  const agentGuideEvidence = createAgentGuideEvidence(files, {
+    manifests: [{ path: "package.json", content: JSON.stringify({
+      scripts: { test: "vitest run", lint: "eslint .", build: "next build" },
+      dependencies: { next: "16.0.0" }
+    }) }]
+  });
+  const plan = createPlan(catalog, {
+    selectedIds: ["delivery.github-actions"],
+    inventory: { files, agentGuideEvidence },
+    workspaceSettings: { nodeVersion: "24" }
+  });
+  const workflow = plan.artifacts.find((artifact) => artifact.path === ".github/workflows/ci.yml");
+  assert.equal(workflow.operation, "create");
+  assert.match(workflow.content, /npm ci/);
+  assert.match(workflow.content, /npm run test/);
+  assert.match(workflow.content, /npm run build/);
+  assert.match(workflow.content, /node-version: 24/);
+  assert.doesNotMatch(workflow.content, /Validate bootstrap records/);
+});
+
+test("CI stays deferred without a reviewed Node.js version", () => {
+  const files = ["package.json", "package-lock.json"];
+  const agentGuideEvidence = createAgentGuideEvidence(files, {
+    manifests: [{ path: "package.json", content: JSON.stringify({ scripts: { test: "vitest run", build: "next build" } }) }]
+  });
+  const plan = createPlan(catalog, { selectedIds: ["delivery.github-actions"], inventory: { files, agentGuideEvidence } });
+  assert.equal(plan.artifacts.find((artifact) => artifact.path === ".github/workflows/ci.yml").operation, "deferred");
+});
+
+test("Compose remains deferred until its local runtime assumptions are reviewed", () => {
+  const files = ["Dockerfile", ".env.example"];
+  const pending = createPlan(catalog, {
+    selectedIds: ["delivery.docker-compose"],
+    inventory: { files }
+  });
+  assert.equal(pending.artifacts.find((artifact) => artifact.path === "docker-compose.yml").operation, "deferred");
+  const ready = createPlan(catalog, {
+    selectedIds: ["delivery.docker-compose"],
+    inventory: { files },
+    workspaceSettings: { containerPort: 3000 }
+  });
+  const compose = ready.artifacts.find((artifact) => artifact.path === "docker-compose.yml");
+  assert.equal(compose.operation, "create");
+  assert.match(compose.content, /3000:3000/);
+  assert.doesNotMatch(compose.content, /env_file:/);
+  const database = createPlan(catalog, {
+    selectedIds: ["delivery.docker-compose", "data.postgresql"],
+    inventory: { files },
+    workspaceSettings: { containerPort: 3000 }
+  });
+  assert.equal(database.artifacts.find((artifact) => artifact.path === "docker-compose.yml").operation, "deferred");
+  const customDatabase = createPlan(catalog, {
+    selectedIds: ["delivery.docker-compose"],
+    customChoices: [{ category: "database", name: "MariaDB", purpose: "Existing service", scope: "api" }],
+    inventory: { files }, workspaceSettings: { containerPort: 3000 }
+  });
+  assert.equal(customDatabase.artifacts.find((artifact) => artifact.path === "docker-compose.yml").operation, "deferred");
 });
 
 test("alternate GitHub pull-request templates require a non-writing merge preview", () => {
@@ -352,6 +547,54 @@ test("a new Expo selection plans a root scaffold before bootstrap artifacts", ()
   assert.ok(plan.artifacts.every((artifact) => artifact.operation !== "create" || artifact.phase === "post-runtime-scaffold"));
 });
 
+test("a new Next.js monorepo requires an explicit path and plans the app before workspace files", () => {
+  const selectedIds = ["language.typescript", "frontend.nextjs", "repository.monorepo"];
+  const undecided = createPlan(catalog, { selectedIds, inventory: { files: [] } });
+  assert.equal(undecided.status, "blocked");
+  assert.equal(undecided.scaffolds[0].operation, "needs-layout-decision");
+  assert.equal(undecided.artifacts.length, 0);
+  assert.equal(undecided.commands.length, 0);
+
+  const planned = createPlan(catalog, {
+    selectedIds,
+    inventory: { files: [] },
+    workspaceSettings: { applicationPath: "apps/web" }
+  });
+  assert.equal(planned.scaffolds[0].operation, "generate");
+  assert.match(planned.commands[0].command, /create-next-app@latest apps\/web/);
+  assert.match(planned.commands[0].command, /--skip-install --disable-git/);
+  assert.match(planned.commands[0].command, /--no-agents-md --no-agent-feedback/);
+  assert.equal(planned.runtimeSetup.artifactWritePhase, "post-runtime-scaffold");
+  assert.equal(planned.artifacts.find((artifact) => artifact.path === "package.json").phase, "post-runtime-scaffold");
+  assert.equal(planned.artifacts.some((artifact) => artifact.path === "tsconfig.json"), false);
+});
+
+test("a custom package manager prevents an npm-only Next.js scaffold command", () => {
+  const plan = createPlan(catalog, {
+    selectedIds: ["language.typescript", "frontend.nextjs", "repository.monorepo"],
+    customChoices: [{ category: "tool", name: "pnpm", purpose: "Team package-manager policy", scope: "repository" }],
+    workspaceSettings: { applicationPath: "apps/web" },
+    inventory: { files: [] }
+  });
+  assert.equal(plan.status, "blocked");
+  assert.equal(plan.scaffolds[0].operation, "needs-tooling-decision");
+  assert.equal(plan.artifacts.length, 0);
+  assert.equal(plan.commands.length, 0);
+});
+
+test("an existing Next.js app is preserved and a missing monorepo root manifest is planned", () => {
+  const selectedIds = ["language.typescript", "frontend.nextjs", "repository.monorepo"];
+  const plan = createPlan(catalog, {
+    selectedIds,
+    inventory: { files: ["apps/web/package.json", "apps/web/next.config.ts", "apps/web/src/app/page.tsx"] },
+    workspaceSettings: { applicationPath: "apps/web" }
+  });
+  assert.equal(plan.scaffolds[0].operation, "not-needed");
+  assert.equal(plan.artifacts.find((artifact) => artifact.path === "package.json").operation, "create");
+  assert.equal(plan.commands[0].command, "npm install");
+  assert.equal(plan.artifacts.some((artifact) => artifact.path === "tsconfig.json"), false);
+});
+
 test("an existing Expo scaffold is preserved and its generated TypeScript configuration is not replaced", () => {
   const files = ["package.json", "app.json", "tsconfig.json", "src/app/_layout.tsx"];
   const plan = createPlan(catalog, {
@@ -375,7 +618,9 @@ test("a populated workspace cannot silently become a nested Expo project", () =>
 
   assert.equal(scaffold.operation, "requires-empty-workspace");
   assert.match(scaffold.reason, /(implicit apps|nested Git)/);
-  assert.equal(plan.commands[0].command, "No command is scheduled by default.");
+  assert.equal(plan.status, "blocked");
+  assert.equal(plan.artifacts.length, 0);
+  assert.equal(plan.commands.length, 0);
 });
 
 test("mobile runtime alternatives cannot be selected together", () => {

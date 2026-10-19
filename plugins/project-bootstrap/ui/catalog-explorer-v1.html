@@ -57,7 +57,7 @@
     </main>
     <script>
       (() => {
-        const APP_VERSION = "0.5.0";
+        const APP_VERSION = "0.7.0";
         const APP_PROTOCOL_VERSION = "2026-01-26";
         const pending = new Map();
         let nextRequestId = 1;
@@ -70,18 +70,22 @@
         function korean() { return explorer?.locale === "ko" || document.documentElement.lang.startsWith("ko"); }
         function strings() {
           return korean() ? {
-            candidates: "후보", select: "후보를 선택하세요", comment: "의견 (선택 사항)", placeholder: "선호, 제약 사항 또는 다른 대안을 적으세요.", approval: "이 선택은 현재 계획 결정에 반영됩니다. 파일 변경이나 명령 실행을 승인하지 않습니다.", submit: "선택을 채팅에 제출", submitting: "선택 적용 중…", submitted: "선택이 현재 계획에 반영되어 다음 단계로 전달되었습니다.", hostUnavailable: "호스트 연결을 사용할 수 없습니다. 선택 내용을 채팅에 직접 입력하세요.", source: "카탈로그 탐색기 선택", applyMessage: (id, kind, comment) => `카탈로그 탐색기 선택: ${id}${comment ? ` — ${comment}` : ""}. 이 선택을 현재 Project Bootstrap의 ${kind} 결정으로 반영하세요. 다른 결정의 기존 선택은 유지하고, 이 선택을 다시 묻지 마세요. 누적 선택을 검증하거나 다음 관련 후보를 제시하세요. 이는 계획 선택일 뿐 파일 변경이나 명령 실행 승인이 아닙니다.`
+            candidates: "후보", select: "후보를 선택하세요", comment: "의견 (선택 사항)", placeholder: "선호, 제약 사항 또는 다른 대안을 적으세요.", customComment: "직접 지정할 기술 이름과 용도 (필수)", customPlaceholder: "예: MariaDB — 기존 운영 DB와 맞추기 위해 사용. 적용 범위: API 서비스.", approval: "이 선택은 현재 계획 결정에 반영됩니다. 파일 변경이나 명령 실행을 승인하지 않습니다.", submit: "선택을 채팅에 제출", submitting: "선택 적용 중…", submitted: "선택이 현재 계획에 반영되어 다음 단계로 전달되었습니다.", hostUnavailable: "호스트 연결을 사용할 수 없습니다. 선택 내용을 채팅에 직접 입력하세요.", source: "카탈로그 탐색기 선택", applyMessage: (id, kind, comment) => id === "custom" ? `사용자 지정 ${kind} 기술 선택: ${comment}. 기술 이름·용도·범위를 확인해 customChoices에 기록하세요. 지원되지 않는 설정이나 스캐폴드는 자동 생성하지 마세요. 이는 파일 변경이나 명령 실행 승인이 아닙니다.` : `카탈로그 탐색기 선택: ${id}${comment ? ` — ${comment}` : ""}. 이 선택을 현재 Project Bootstrap의 ${kind} 결정으로 반영하세요. 다른 결정의 기존 선택은 유지하고, 이 선택을 다시 묻지 마세요. 누적 선택을 검증하거나 다음 관련 후보를 제시하세요. 이는 계획 선택일 뿐 파일 변경이나 명령 실행 승인이 아닙니다.`
           } : {
-            candidates: "Candidates", select: "Select a candidate", comment: "Comment (optional)", placeholder: "Explain your preference, constraint, or an alternative.", approval: "Submitting this choice applies it to the current planning decision. It does not approve file changes or commands.", submit: "Submit selection to chat", submitting: "Applying selection…", submitted: "Your selection was applied to the current plan and sent to the next step.", hostUnavailable: "Host connection is unavailable. Enter your selection in chat instead.", source: "Catalog Explorer selection", applyMessage: (id, kind, comment) => `Catalog Explorer selection: ${id}${comment ? ` — ${comment}` : ""}. Apply this as the user's selected ${kind} for the current Project Bootstrap decision. Keep earlier choices from other decisions, do not ask for this choice again, then validate the accumulated selection or present the next relevant candidates. This is a planning choice only, not approval for file changes or commands.`
+            candidates: "Candidates", select: "Select a candidate", comment: "Comment (optional)", placeholder: "Explain your preference, constraint, or an alternative.", customComment: "Technology name and purpose (required)", customPlaceholder: "Example: MariaDB — match the existing operational database. Scope: API service.", approval: "Submitting this choice applies it to the current planning decision. It does not approve file changes or commands.", submit: "Submit selection to chat", submitting: "Applying selection…", submitted: "Your selection was applied to the current plan and sent to the next step.", hostUnavailable: "Host connection is unavailable. Enter your selection in chat instead.", source: "Catalog Explorer selection", applyMessage: (id, kind, comment) => id === "custom" ? `Custom ${kind} choice: ${comment}. Confirm its name, purpose, and scope, then record it in customChoices. Do not generate unsupported configuration or scaffolds. This is not approval for file changes or commands.` : `Catalog Explorer selection: ${id}${comment ? ` — ${comment}` : ""}. Apply this as the user's selected ${kind} for the current Project Bootstrap decision. Keep earlier choices from other decisions, do not ask for this choice again, then validate the accumulated selection or present the next relevant candidates. This is a planning choice only, not approval for file changes or commands.`
           };
         }
         function post(method, params, id) { window.parent.postMessage({ jsonrpc: "2.0", method, params, ...(id === undefined ? {} : { id }) }, "*"); }
         function request(method, params) { const id = nextRequestId++; post(method, params, id); return new Promise((resolve, reject) => pending.set(id, { resolve, reject })); }
         function notify(method, params) { post(method, params); }
         function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+        function updateSubmitState() { elements.submit.disabled = !selectedId || (selectedId === "custom" && !elements.comment.value.trim()); }
         function addBadge(text) { const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = text; elements.metadata.appendChild(badge); }
         function renderDetail() {
           const current = explorer?.entries?.find((entry) => entry.id === selectedId); const copy = strings(); clear(elements.metadata);
+          elements.commentLabel.textContent = selectedId === "custom" ? copy.customComment : copy.comment;
+          elements.comment.placeholder = selectedId === "custom" ? copy.customPlaceholder : copy.placeholder;
+          updateSubmitState();
           if (!current) { elements.detailTitle.textContent = copy.select; elements.path.textContent = ""; elements.markdown.textContent = ""; return; }
           elements.detailTitle.textContent = current.label; addBadge(current.kind); for (const tag of current.tags || []) addBadge(tag); for (const language of current.languages || []) addBadge(language); elements.path.textContent = current.path || ""; elements.markdown.textContent = current.markdown || "";
         }
@@ -92,16 +96,16 @@
             const button = document.createElement("button"); button.type = "button"; button.className = "candidate"; button.setAttribute("role", "option"); button.setAttribute("aria-pressed", String(entry.id === selectedId)); button.setAttribute("aria-selected", String(entry.id === selectedId));
             const label = document.createElement("span"); label.className = "candidate-title"; label.textContent = entry.label;
             const summary = document.createElement("span"); summary.className = "candidate-summary"; summary.textContent = entry.summary;
-            button.append(label, summary); button.addEventListener("click", () => { selectedId = entry.id; renderCandidates(); renderDetail(); elements.submit.disabled = false; }); elements.candidates.appendChild(button);
+            button.append(label, summary); button.addEventListener("click", () => { selectedId = entry.id; renderCandidates(); renderDetail(); }); elements.candidates.appendChild(button);
           }
         }
         function render(data) {
           if (!data || !Array.isArray(data.entries)) return; explorer = data; selectedId = data.entries.some((entry) => entry.id === selectedId) ? selectedId : data.entries[0]?.id;
-          const copy = strings(); elements.title.textContent = data.title || "Catalog Explorer"; elements.guidance.textContent = data.guidance || ""; elements.commentLabel.textContent = copy.comment; elements.comment.placeholder = copy.placeholder; elements.approvalNote.textContent = copy.approval; elements.submit.textContent = copy.submit; elements.submit.disabled = !selectedId; renderCandidates(); renderDetail(); elements.status.textContent = "";
+          const copy = strings(); elements.title.textContent = data.title || "Catalog Explorer"; elements.guidance.textContent = data.guidance || ""; elements.approvalNote.textContent = copy.approval; elements.submit.textContent = copy.submit; renderCandidates(); renderDetail(); elements.status.textContent = "";
         }
         async function submitSelection() {
           const current = explorer?.entries?.find((entry) => entry.id === selectedId); if (!current) return;
-          const copy = strings(); const comment = elements.comment.value.trim(); const fallback = { source: "project-bootstrap.catalog-explorer", candidateIds: explorer.entries.map((entry) => entry.id), selection: { id: current.id, kind: current.kind, label: current.label, comment, suggestedIds: [] }, continuation: { replaceOnlyCurrentDecision: true } };
+          const copy = strings(); const comment = elements.comment.value.trim(); if (current.id === "custom" && !comment) return; const fallback = { source: "project-bootstrap.catalog-explorer", candidateIds: explorer.entries.map((entry) => entry.id), selection: { id: current.id, kind: current.kind, label: current.label, comment, custom: current.id === "custom", suggestedIds: [] }, continuation: { replaceOnlyCurrentDecision: true } };
           elements.submit.disabled = true; elements.submit.textContent = copy.submitting;
           try {
             let submission = fallback;
@@ -115,7 +119,7 @@
             const message = copy.applyMessage(current.id, submission.selection.kind, comment);
             await request("ui/message", { role: "user", content: [{ type: "text", text: message }] }); elements.status.textContent = copy.submitted;
           } catch (error) { elements.status.textContent = copy.hostUnavailable; }
-          finally { elements.submit.disabled = false; elements.submit.textContent = copy.submit; }
+          finally { elements.submit.textContent = copy.submit; updateSubmitState(); }
         }
         window.addEventListener("message", (event) => {
           if (event.source !== window.parent) return; const message = event.data; if (!message || message.jsonrpc !== "2.0") return;
@@ -129,7 +133,7 @@
           } catch (error) { elements.status.textContent = strings().hostUnavailable; }
           render(window.openai?.toolOutput?.structuredContent || window.openai?.toolOutput);
         }
-        elements.submit.addEventListener("click", submitSelection); connect();
+        elements.submit.addEventListener("click", submitSelection); elements.comment.addEventListener("input", updateSubmitState); connect();
       })();
     </script>
   </body>

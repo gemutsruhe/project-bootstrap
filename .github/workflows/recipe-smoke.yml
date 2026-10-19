@@ -1,0 +1,384 @@
+name: Platform recipe smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: recipe-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: vite
+            choices: framework=web.vite
+          - name: next
+            choices: framework=web.nextjs
+          - name: zustand
+            choices: framework=web.nextjs state=web.zustand
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-web-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/materialize-recipe-smoke.mjs web ${{ matrix.choices }}
+      - run: npm install --no-audit --no-fund
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm run build
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm test
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  web-database:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [data.postgresql, data.sqlite, data.mysql]
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-web-${{ matrix.database }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/materialize-recipe-smoke.mjs web framework=web.nextjs state=web.redux serverState=web.tanstack-query database=${{ matrix.database }}
+      - run: npm install --no-audit --no-fund
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npx prisma generate
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm run build
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm test
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  api-nest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            choices: ''
+          - name: sqlite
+            choices: database=data.sqlite architecture=api.hexagonal
+          - name: postgresql
+            choices: database=data.postgresql
+          - name: mysql
+            choices: database=data.mysql
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-api-nest-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/materialize-recipe-smoke.mjs api framework=api.nestjs ${{ matrix.choices }}
+      - run: npm install --no-audit --no-fund
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npx prisma generate
+        if: matrix.name != 'default'
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm run build
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm test -- --runInBand
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fastapi-sqlite
+            platform: api
+            choices: database=data.sqlite
+          - name: fastapi-postgresql
+            platform: api
+            choices: database=data.postgresql
+          - name: fastapi-mysql
+            platform: api
+            choices: database=data.mysql
+          - name: pandas
+            platform: data
+            choices: dataframe=data.pandas
+          - name: polars
+            platform: data
+            choices: dataframe=data.polars
+          - name: data-api
+            platform: data
+            choices: architecture=data.api
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: node scripts/materialize-recipe-smoke.mjs ${{ matrix.platform }} ${{ matrix.choices }}
+      - run: python -m pip install -e '.[test]'
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: python -m pytest
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  expo:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            choices: ''
+          - name: zustand-sqlite
+            choices: state=expo.zustand database=expo.sqlite
+          - name: redux
+            choices: state=expo.redux
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-expo-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/materialize-recipe-smoke.mjs expo ${{ matrix.choices }}
+      - run: npm install --no-audit --no-fund
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npx expo-doctor
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm test
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  electron:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            choices: ''
+          - name: zustand-sqlite
+            choices: state=desktop.zustand database=desktop.sqlite
+          - name: redux
+            choices: state=desktop.redux
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-electron-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/materialize-recipe-smoke.mjs desktop ${{ matrix.choices }}
+      - run: npm install --no-audit --no-fund
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm test
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm run build
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  go:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            choices: ''
+          - name: sqlite
+            choices: database=data.sqlite
+          - name: postgresql
+            choices: database=data.postgresql
+          - name: mysql
+            choices: database=data.mysql
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-go-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+      - run: node scripts/materialize-recipe-smoke.mjs api framework=api.go ${{ matrix.choices }}
+      - run: go mod tidy
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: go test ./...
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: go build ./...
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  dotnet:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            choices: ''
+          - name: sqlite
+            choices: database=data.sqlite
+          - name: postgresql
+            choices: database=data.postgresql
+          - name: mysql
+            choices: database=data.mysql
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-dotnet-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: node scripts/materialize-recipe-smoke.mjs api framework=api.aspnet ${{ matrix.choices }}
+      - run: dotnet restore BootstrapApi.csproj
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: dotnet build BootstrapApi.csproj
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: dotnet test tests/BootstrapApi.Tests.csproj
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  jvm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: spring-default
+            choices: framework=api.spring
+          - name: spring-postgresql
+            choices: framework=api.spring database=data.postgresql
+          - name: spring-mysql
+            choices: framework=api.spring database=data.mysql
+          - name: ktor-default
+            choices: framework=api.ktor
+          - name: ktor-sqlite
+            choices: framework=api.ktor database=data.sqlite
+          - name: ktor-postgresql
+            choices: framework=api.ktor database=data.postgresql
+          - name: ktor-mysql
+            choices: framework=api.ktor database=data.mysql
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - run: node scripts/materialize-recipe-smoke.mjs api ${{ matrix.choices }}
+      - run: gradle test
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: gradle build
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  flutter:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            choices: ''
+          - name: riverpod
+            choices: state=flutter.riverpod
+          - name: bloc
+            choices: architecture=flutter.bloc-pattern state=flutter.bloc
+          - name: sqlite
+            choices: database=flutter.sqflite
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-flutter-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: node scripts/materialize-recipe-smoke.mjs flutter ${{ matrix.choices }}
+      - run: flutter pub get
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: flutter analyze
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: flutter test
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  android:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            choices: ''
+          - name: orbit
+            choices: architecture=android.mvi state=android.orbit
+          - name: mavericks
+            choices: architecture=android.mvi state=android.mavericks
+          - name: koin-room
+            choices: dependencyInjection=android.koin database=android.room
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-android-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - run: node scripts/materialize-recipe-smoke.mjs android ${{ matrix.choices }}
+      - run: gradle test assembleDebug
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+
+  tauri:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            choices: ''
+          - name: sqlite
+            choices: database=desktop.sqlite
+    env:
+      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-tauri-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev
+      - run: node scripts/materialize-recipe-smoke.mjs desktop framework=desktop.tauri ${{ matrix.choices }}
+      - run: npm install --no-audit --no-fund
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm test
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: npm run build
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
