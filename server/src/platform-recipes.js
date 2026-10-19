@@ -249,7 +249,7 @@ function androidRecipe(target) {
 function iosRecipe(target) {
   const tca = has(target, "ios.tca");
   const swiftData = has(target, "ios.swiftdata");
-  const packages = tca ? "packages:\n  ComposableArchitecture:\n    url: https://github.com/pointfreeco/swift-composable-architecture\n    from: 1.0.0\n" : "";
+  const packages = tca ? "packages:\n  ComposableArchitecture:\n    url: https://github.com/pointfreeco/swift-composable-architecture\n    exactVersion: 1.26.2\n" : "";
   const dependencies = tca ? "    dependencies:\n      - package: ComposableArchitecture\n" : "";
   const files = [record(target),
       artifact(target, "project.yml", `name: BootstrapIOS\noptions:\n  bundleIdPrefix: example\n${packages}targets:\n  BootstrapIOS:\n    type: application\n    platform: iOS\n    deploymentTarget: "17.0"\n    sources: [Sources]\n${dependencies}    settings:\n      base:\n        SWIFT_VERSION: "5.9"\n        GENERATE_INFOPLIST_FILE: YES\n        PRODUCT_BUNDLE_IDENTIFIER: example.BootstrapIOS\n`),
@@ -276,11 +276,12 @@ function desktopRecipe(target) {
     else deps["better-sqlite3"] = "^11.0.0";
   }
   const files = [record(target), reactStateArtifact(target), artifact(target, "src/providers.tsx", reactProviders(target)),
-    artifact(target, "package.json", json({ name: "bootstrap-desktop", productName: "BootstrapDesktop", version: "0.1.0", author: "Project Bootstrap", private: true, ...(tauri ? { type: "module" } : { main: ".vite/build/main.js" }), scripts: { dev: tauri ? "tauri dev" : "electron-forge start", build: tauri ? "tauri build" : "electron-forge make", ...(tauri ? { "vite:dev": "vite --host 127.0.0.1", "vite:build": "vite build" } : {}), test: "vitest run" }, dependencies: deps, devDependencies: dev })),
+    artifact(target, "package.json", json({ name: "bootstrap-desktop", productName: "BootstrapDesktop", version: "0.1.0", author: "Project Bootstrap", private: true, ...(tauri ? { type: "module" } : { main: ".vite/build/main.js" }), scripts: { dev: tauri ? "tauri dev" : "electron-forge start", build: tauri ? "tauri build" : "electron-forge make", ...(tauri ? { predev: "tauri icon app-icon.svg", prebuild: "tauri icon app-icon.svg", "vite:dev": "vite --host 127.0.0.1", "vite:build": "vite build" } : {}), test: "vitest run" }, dependencies: deps, devDependencies: dev })),
     artifact(target, "index.html", "<!doctype html><html><body><div id=\"root\"></div><script type=\"module\" src=\"/src/main.tsx\"></script></body></html>\n"),
     artifact(target, "src/main.tsx", "import React from 'react';\nimport { createRoot } from 'react-dom/client';\nimport Providers from './providers';\ncreateRoot(document.getElementById('root')!).render(<React.StrictMode><Providers><main>Project ready</main></Providers></React.StrictMode>);\n"),
     artifact(target, tauri ? "vite.config.ts" : "vite.renderer.config.mjs", "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\nexport default defineConfig({ plugins: [react()] });\n")];
   if (tauri) {
+    files.push(artifact(target, "app-icon.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#1f2937"/><path d="M128 136h256v240H128z" fill="#ffffff"/><path d="M160 168h192v176H160z" fill="#2563eb"/></svg>\n'));
     files.push(artifact(target, "src-tauri/Cargo.toml", `[package]\nname = "bootstrap-desktop"\nversion = "0.1.0"\nedition = "2021"\n[build-dependencies]\ntauri-build = { version = "2", features = [] }\n[dependencies]\ntauri = { version = "2", features = [] }\n${has(target, "desktop.sqlite") ? 'tauri-plugin-sql = { version = "2", features = ["sqlite"] }\n' : ""}`));
     files.push(artifact(target, "src-tauri/build.rs", "fn main() { tauri_build::build() }\n"));
     files.push(artifact(target, "src-tauri/src/main.rs", `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]\nfn main() { tauri::Builder::default()${has(target, "desktop.sqlite") ? ".plugin(tauri_plugin_sql::Builder::default().build())" : ""}.run(tauri::generate_context!()).expect("failed to run app"); }\n`));

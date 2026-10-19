@@ -154,6 +154,11 @@ test("smoke-discovered runtime prerequisites stay in generated recipes", () => {
   const desktopPackage = JSON.parse(file(desktop, "package.json"));
   assert.equal(desktopPackage.name, "bootstrap-desktop");
   assert.equal(desktopPackage.version, "0.1.0");
+  const tauri = planned("desktop", { framework: "desktop.tauri" });
+  const tauriPackage = JSON.parse(file(tauri, "package.json"));
+  assert.equal(tauriPackage.scripts.predev, "tauri icon app-icon.svg");
+  assert.equal(tauriPackage.scripts.prebuild, "tauri icon app-icon.svg");
+  assert.match(file(tauri, "app-icon.svg"), /<svg/);
 });
 
 test("defaults require explicit acceptance and optional external services remain off", () => {

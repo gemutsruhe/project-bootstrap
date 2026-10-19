@@ -1,6 +1,6 @@
 // Release-reviewed platform choices. The legacy Markdown catalogue remains supported.
 export const PLATFORM_SELECTION_VERSION = 2;
-export const PLATFORM_CATALOG_VERSION = "2026.10.3";
+export const PLATFORM_CATALOG_VERSION = "2026.10.4";
 
 const observedAt = "2026-10-19";
 const SOURCES = {
@@ -88,7 +88,7 @@ export const PLATFORM_CATALOG = {
     testing: slot("flutter", "flutter.flutter-test", [["flutter.flutter-test", "flutter_test", "2026.10", "SDK unit and widget tests."]])
   } },
   ios: { label: "Native iOS", slots: {
-    architecture: slot("apple", "ios.mvvm", [["ios.mvvm", "SwiftUI MVVM", "iOS 17+", "View models with Observation."], ["ios.tca", "The Composable Architecture", "iOS 17+", "Reducer-driven effects and state."]]),
+    architecture: slot("apple", "ios.mvvm", [["ios.mvvm", "SwiftUI MVVM", "iOS 17+", "View models with Observation."], ["ios.tca", "The Composable Architecture", "TCA 1.26.2", "Reducer-driven effects and state on iOS 17+."]]),
     state: slot("apple", "ios.observation", [["ios.observation", "Observation", "iOS 17+", "Native @Observable state."]]),
     database: slot("apple", null, [["ios.swiftdata", "SwiftData", "iOS 17+", "Native persistent models."]]),
     testing: slot("apple", "ios.swift-testing", [["ios.swift-testing", "Swift Testing", "Xcode 16+", "Native Swift test baseline."]])
@@ -138,7 +138,8 @@ const RELEASE_REFERENCES = {
   "api.ktor": "https://ktor.io/docs/releases.html",
   "api.go": "https://go.dev/doc/devel/release",
   "api.aspnet": "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core",
-  "expo.router": "https://docs.expo.dev/versions/v58.0.0/"
+  "expo.router": "https://docs.expo.dev/versions/v58.0.0/",
+  "ios.tca": "https://github.com/pointfreeco/swift-composable-architecture/releases/tag/1.26.2"
 };
 const NON_SURVEY_CHOICES = {
   "web.feature-modules": "https://react.dev/learn/thinking-in-react",
