@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "project-bootstrap",
-  "version": "0.6.3",
+  "version": "0.8.0",
   "description": "Plan, validate, and generate approved local project bootstrap artifacts, configured Codex workspace guides, and standard runtime scaffolds.",
   "keywords": [
     "architecture",
@@ -17,7 +17,7 @@
       "interface": {
         "displayName": "Project Bootstrap",
         "shortDescription": "Plan and generate local project setup.",
-        "longDescription": "Select architecture and platform choices, configure workspace-guide policies, validate their compatibility, then generate approved Codex workspace guides, bootstrap artifacts, and supported standard runtime scaffolds without implementing product features.",
+        "longDescription": "Choose a common starting template or customize languages, databases, frameworks, tools, UI architecture, and state management; validate the plan, then generate approved local guides, bootstrap artifacts, and supported runtime scaffolds without implementing product features.",
         "developerName": "Project Bootstrap Contributors",
         "category": "Developer tools",
         "capabilities": [

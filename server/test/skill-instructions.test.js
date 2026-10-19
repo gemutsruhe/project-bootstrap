@@ -30,9 +30,9 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /Korean, English, or Other/);
   assert.match(skill, /never a programming-language choice/);
   assert.match(skill, /never request, echo, copy, or rewrite raw Codex configuration/);
-  assert.match(skill, /selectedCatalogId/);
+  assert.match(skill, /selection\.id/);
   assert.match(skill, /do not ask the same choice again/);
-  assert.match(skill, /apply that exact ID as the user override/);
+  assert.match(skill, /apply that exact choice as the user override/);
   assert.match(skill, /execute the approved file generation in the same turn/);
   assert.match(skill, /Do not stop at a hypothetical scaffold/);
   assert.match(skill, /write the real, non-empty file at the exact planned path/);
@@ -49,7 +49,7 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /collaborationHost/);
   assert.match(skill, /Ask `\.github\/pull_request_template\.md` only when `collaborationHost` is `github`/);
   assert.match(skill, /Configure one applicable guide at a time/);
-  assert.match(skill, /Pass both `guideDecisions` and `workspaceSettings`/);
+  assert.match(skill, /Pass `customChoices`, `guideDecisions`, and `workspaceSettings`/);
   assert.match(skill, /`agentsGuide` evidence and template preview/);
   assert.match(skill, /AGENTS_REPOSITORY_MAP/);
   assert.match(skill, /Do not let an answer weaken the Skill's approval gates/);
@@ -65,7 +65,7 @@ test("bootstrap skill uses progressive selectable questions with a free-text fal
   assert.match(skill, /registry-backed audit/);
   assert.match(skill, /Do not launch `server\/dist\/index\.js`/);
   assert.match(skill, /Never create or rewrite `\.codex\/config\.toml`/);
-  assert.match(skill, /marked `conflict` or `merge-preview`/);
+  assert.match(skill, /marked `conflict`, `merge-preview`, or `deferred`/);
   assert.doesNotMatch(skill, /First working slice/);
 });
 

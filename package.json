@@ -1,6 +1,6 @@
 {
   "name": "codex-project-bootstrap-marketplace",
-  "version": "0.6.3",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "description": "A Codex plugin marketplace for local, approval-gated project bootstrap and runtime scaffold generation.",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test server/test/*.test.js",
-    "check": "node scripts/validate-catalog.mjs && node --test server/test/*.test.js"
+    "test": "node scripts/run-tests.mjs",
+    "check": "node scripts/validate-catalog.mjs && node scripts/run-tests.mjs"
   }
 }

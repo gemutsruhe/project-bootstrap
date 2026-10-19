@@ -9,7 +9,7 @@ tags: [platform, high-scale, high-control]
 stages: [production]
 languages: [typescript, python, java, kotlin, go, dotnet]
 base_score: 55
-suggests: [architecture.microservices, repository.monorepo, language.go, service.go-http, data.postgresql, messaging.nats, delivery.docker-compose, delivery.github-actions, security.oidc, testing.contract, observability.opentelemetry]
+suggests: [architecture.microservices, repository.monorepo, language.typescript, service.nestjs, data.postgresql, observability.opentelemetry]
 ---
 
 Use this profile only when independent deployability and ownership are justified. Start with an explicit boundary map rather than creating services by default.

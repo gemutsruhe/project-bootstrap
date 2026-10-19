@@ -1,0 +1,42 @@
+name: iOS recipe smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-recipe-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mvvm
+            choices: architecture=ios.mvvm
+          - name: tca
+            choices: architecture=ios.tca
+          - name: swiftdata
+            choices: architecture=ios.mvvm database=ios.swiftdata
+    env:
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-ios-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: brew install xcodegen
+      - run: node scripts/materialize-recipe-smoke.mjs ios ${{ matrix.choices }}
+      - run: xcodegen generate --spec project.yml
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - id: simulator
+        run: echo "udid=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))][0].udid')" >> "$GITHUB_OUTPUT"
+      - run: xcodebuild -project BootstrapIOS.xcodeproj -scheme BootstrapIOS -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' -skipMacroValidation CODE_SIGNING_ALLOWED=NO test
+        if: matrix.name == 'tca'
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}
+      - run: xcodebuild -project BootstrapIOS.xcodeproj -scheme BootstrapIOS -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' CODE_SIGNING_ALLOWED=NO test
+        if: matrix.name != 'tca'
+        working-directory: ${{ env.RECIPE_OUTPUT_DIR }}

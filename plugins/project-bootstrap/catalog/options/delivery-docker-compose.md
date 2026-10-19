@@ -9,3 +9,4 @@ tags: [container, local-development, cloud-neutral]
 ---
 
 Keep production deployment topology separate from the local composition unless explicitly approved.
+An active local composition requires a root Dockerfile, an environment example, and a reviewed application port. PostgreSQL or other backing services need their own configuration decision; until then the artifact is deferred rather than rendered as a runnable placeholder.

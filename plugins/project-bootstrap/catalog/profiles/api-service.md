@@ -9,7 +9,7 @@ tags: [api, service, small-team]
 stages: [mvp, production]
 languages: [typescript, python, java, kotlin, go, dotnet]
 base_score: 58
-suggests: [architecture.modular-monolith, language.python, service.fastapi, data.postgresql, delivery.docker-compose, delivery.github-actions, security.oidc, testing.contract, observability.opentelemetry]
+suggests: [architecture.modular-monolith, language.python, service.fastapi, data.postgresql]
 ---
 
 Choose a runtime based on existing team fluency and platform constraints. The profile does not imply that every suggested technology must be selected.

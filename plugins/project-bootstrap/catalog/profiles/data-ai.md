@@ -9,7 +9,7 @@ tags: [data, ai, regulated]
 stages: [mvp, production]
 languages: [python]
 base_score: 62
-suggests: [architecture.event-driven, language.python, data.python-workload, data.postgresql, messaging.nats, delivery.docker-compose, delivery.github-actions, security.oidc, testing.contract, observability.opentelemetry, ai.rag]
+suggests: [architecture.modular-monolith, language.python, data.python-workload, data.postgresql]
 ---
 
 Use this profile for batch, pipeline, retrieval, or model-serving work. Record data classification and evaluation criteria before enabling production execution.

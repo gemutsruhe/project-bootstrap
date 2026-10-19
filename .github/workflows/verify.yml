@@ -21,4 +21,4 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: node scripts/build.mjs --check
       - run: node scripts/validate-catalog.mjs
-      - run: node --test server/test/*.test.js
+      - run: node scripts/run-tests.mjs

@@ -1,10 +1,4 @@
-services:
-  app:
-    image: {{PROJECT_NAME}}:local
-    build: .
-    env_file:
-      - .env
-    ports:
-      - "${APP_PORT:-3000}:3000"
-
-# Add selected backing services only after the user approves their configuration.
+# Retired as an active Compose template.
+# Use only the exact create_plan artifact content after a root Dockerfile,
+# environment example, and application port are reviewed. A deferred plan
+# writes no Compose file; PostgreSQL requires a separate service design.

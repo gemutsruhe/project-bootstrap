@@ -9,7 +9,7 @@ tags: [mobile, client, small-team]
 stages: [mvp, production]
 languages: [typescript, flutter]
 base_score: 56
-suggests: [architecture.modular-monolith, language.flutter, mobile.flutter, service.fastapi, data.postgresql, delivery.github-actions, security.oidc, testing.contract, observability.opentelemetry]
+suggests: [architecture.modular-monolith, language.typescript, mobile.expo]
 ---
 
 Use this profile when the primary user interface runs on iOS or Android. Choose one mobile runtime and explicitly record the backend ownership boundary.

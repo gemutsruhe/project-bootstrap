@@ -5,12 +5,18 @@ import { fileURLToPath } from "node:url";
 import { GUIDE_POLICY_SCHEMA_VERSION, listGuidePolicies, normalizeGuideDecisions } from "./guide-policies.js";
 import { createAgentGuideEvidence, isAgentMetadataPath } from "./agent-evidence.js";
 import { createAgentsGuideBlueprint } from "./agents-guide.js";
+import { listPlatformChoices } from "./platform-catalog.js";
+import { validatePlatformSelection } from "./platform-selection.js";
+import { createPlatformPlan } from "./platform-plan.js";
 
 export { listGuidePolicies } from "./guide-policies.js";
 export { createAgentGuideEvidence } from "./agent-evidence.js";
 export { createAgentsGuideBlueprint } from "./agents-guide.js";
+export { listPlatformChoices } from "./platform-catalog.js";
+export { validatePlatformSelection } from "./platform-selection.js";
+export { createPlatformPlan } from "./platform-plan.js";
 
-export const PLUGIN_VERSION = "0.6.3";
+export const PLUGIN_VERSION = "0.8.0";
 export const CATALOG_EXPLORER_RESOURCE_URI = "ui://project-bootstrap/catalog-explorer-v2.html";
 export const WORKSPACE_GUIDE_CONFIGURATOR_RESOURCE_URI = "ui://project-bootstrap/workspace-guide-configurator-v1.html";
 
@@ -45,6 +51,20 @@ const TOOL_DEFINITIONS = [
     }
   },
   {
+    name: "list_platform_choices",
+    description: "List release-pinned, target-scoped platform choices with defaults, evidence, and recipe version baselines. Read-only; choices never authorize generation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        platformId: { type: "string", enum: ["web", "api", "android", "expo", "flutter", "ios", "desktop", "data"] },
+        locale: { type: "string", enum: ["en", "ko"], default: "en" },
+        requirements: { type: "object", description: "Optional productType (spa/fullstack), preferredLanguage, and persistentData values used only to rank the displayed defaults." }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true }
+  },
+  {
     name: "list_catalog",
     description: "List Markdown catalogue entries and localized labels packaged with the plugin. Call render_catalog_explorer to inspect a selected candidate set in an interactive UI.",
     inputSchema: {
@@ -64,6 +84,7 @@ const TOOL_DEFINITIONS = [
       type: "object",
       properties: {
         candidateIds: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" } },
+        allowCustom: { type: "boolean", default: false, description: "Show a user-defined alternative for a single-kind technology comparison." },
         locale: { type: "string", enum: ["en", "ko"], default: "en" },
         title: { type: "string", maxLength: 120, description: "Optional context title for the comparison." }
       },
@@ -84,7 +105,7 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: "object",
       properties: {
-        candidateIds: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" }, description: "Exactly the candidate IDs shown in the Explorer." },
+        candidateIds: { type: "array", minItems: 1, maxItems: 13, items: { type: "string" }, description: "Exactly the candidate IDs shown in the Explorer, including custom when offered." },
         selectedId: { type: "string", description: "The candidate ID chosen by the user." },
         comment: { type: "string", maxLength: 2000, default: "" },
         locale: { type: "string", enum: ["en", "ko"], default: "en" }
@@ -128,16 +149,24 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "validate_selection",
-    description: "Evaluate selected catalogue IDs against deterministic requirements, incompatibilities, and warnings.",
+    description: "Evaluate legacy selectedIds or a version-2 target-scoped platform selection against requirements, incompatibilities, and warnings.",
     inputSchema: {
       type: "object",
       properties: {
+        selection: { type: "object", description: "Version-2 selection: {version:2, targets:[{id, platformId, path, choices, useDefaults?, customChoices?}]}" },
+        hostPlatform: { type: "string", enum: ["windows", "linux", "macos"], description: "Optional host override for a cross-platform planning preview." },
         selectedIds: { type: "array", minItems: 1, items: { type: "string" } },
+        customChoices: { type: "array", maxItems: 12, items: { type: "object", properties: {
+          category: { type: "string", enum: ["language", "database", "framework", "tool", "architecture", "library"] },
+          name: { type: "string", minLength: 1, maxLength: 80 },
+          purpose: { type: "string", minLength: 1, maxLength: 300 },
+          scope: { type: "string", maxLength: 120 },
+          replacesId: { type: "string" }
+        }, required: ["category", "name", "purpose"], additionalProperties: false } },
         requirements: { type: "object" },
         inventory: { type: "object" },
         locale: { type: "string", enum: ["en", "ko"], default: "en" }
       },
-      required: ["selectedIds"],
       additionalProperties: false
     }
   },
@@ -198,11 +227,19 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "create_plan",
-    description: "Produce a read-only local bootstrap plan, including a source-grounded AGENTS.md blueprint, supported runtime scaffold commands, and reviewed workspace-guide decisions. A blocked selection produces no writable plan.",
+    description: "Produce a read-only legacy bootstrap plan or version-2 target-scoped platform file and command plan. A blocked selection produces no writable plan.",
     inputSchema: {
       type: "object",
       properties: {
+        selection: { type: "object", description: "Version-2 target-scoped selection. When present, selectedIds is not used." },
         selectedIds: { type: "array", minItems: 1, items: { type: "string" } },
+        customChoices: { type: "array", maxItems: 12, items: { type: "object", properties: {
+          category: { type: "string", enum: ["language", "database", "framework", "tool", "architecture", "library"] },
+          name: { type: "string", minLength: 1, maxLength: 80 },
+          purpose: { type: "string", minLength: 1, maxLength: 300 },
+          scope: { type: "string", maxLength: 120 },
+          replacesId: { type: "string" }
+        }, required: ["category", "name", "purpose"], additionalProperties: false } },
         projectName: { type: "string", minLength: 1, maxLength: 80, description: "Name used by a supported runtime scaffold. New single-runtime projects are scaffolded at the workspace root." },
         requirements: { type: "object" },
         guideDecisions: {
@@ -220,18 +257,62 @@ const TOOL_DEFINITIONS = [
         },
         workspaceSettings: {
           type: "object",
-          description: "Reviewed workspace-wide settings. GitHub-specific files are considered only when collaborationHost is github. Existing Codex configuration is always preserved and is never rewritten by this plugin. New runtime scaffolds target an empty workspace root; an existing multi-app layout must be inspected and planned separately.",
+          description: "Reviewed workspace-wide settings. GitHub-specific files are considered only when collaborationHost is github. Existing Codex configuration is preserved. A new Next.js monorepo needs an explicit applicationPath choice.",
           properties: {
-            collaborationHost: { type: "string", enum: ["none", "github", "gitlab", "other", "existing"] }
+            collaborationHost: { type: "string", enum: ["none", "github", "gitlab", "other", "existing"] },
+            applicationPath: { type: "string", enum: [".", "apps/web"], description: "Explicit location for a new Next.js scaffold. Use apps/web only with repository.monorepo." },
+            nodeVersion: { type: "string", enum: ["20", "22", "24"], description: "Reviewed Node.js major version for an active npm CI workflow." },
+            containerPort: { type: "integer", minimum: 1, maximum: 65535, description: "Reviewed application port for a root Dockerfile; required before active Compose generation." }
           },
           additionalProperties: false
         },
         inventory: { type: "object" },
         locale: { type: "string", enum: ["en", "ko"], default: "en" }
       },
-      required: ["selectedIds"],
       additionalProperties: false
     }
+  },
+  {
+    name: "assess_implementation",
+    description: "Read a local implementation against caller-supplied acceptance criteria. Report file evidence, declared versus reported checks, documentation drift, and contextual review prompts without claiming that file presence proves behavior. Never runs commands or changes files.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Local workspace to inspect under the configured host boundary." },
+        requirements: {
+          type: "array", maxItems: 30,
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", minLength: 1, maxLength: 80 },
+              description: { type: "string", minLength: 1, maxLength: 500 },
+              evidencePaths: { type: "array", maxItems: 20, items: { type: "string" } },
+              checkDirectory: { type: "string", description: "Workspace-relative directory for the listed check commands; defaults to the workspace root." },
+              checkCommands: { type: "array", maxItems: 10, items: { type: "string" } }
+            },
+            required: ["id", "description"],
+            additionalProperties: false
+          }
+        },
+        reportedChecks: {
+          type: "array", maxItems: 40,
+          items: {
+            type: "object",
+            properties: {
+              command: { type: "string" },
+              directory: { type: "string", description: "Workspace-relative execution directory; defaults to the workspace root." },
+              status: { type: "string", enum: ["passed", "failed", "unavailable"] },
+              source: { type: "string", description: "Caller-supplied log or CI run reference; not independently verified by this tool." }
+            },
+            required: ["command", "status", "source"],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ["root"],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true }
   },
   {
     name: "check_updates",
@@ -377,7 +458,7 @@ export function listCatalog(entries, { kind, tag, locale = "en" } = {}) {
     }));
 }
 
-export function createCatalogExplorer(entries, { candidateIds, locale = "en", title } = {}) {
+export function createCatalogExplorer(entries, { candidateIds, allowCustom = false, locale = "en", title } = {}) {
   const byId = new Map(entries.map((entry) => [entry.attributes.id, entry]));
   const ids = [...new Set(asList(candidateIds))];
   if (!ids.length) throw new Error("candidateIds must include at least one catalogue ID.");
@@ -396,10 +477,27 @@ export function createCatalogExplorer(entries, { candidateIds, locale = "en", ti
       markdown: entry.markdown
     };
   });
+  if (allowCustom) {
+    const kinds = new Set(selected.map((entry) => entry.kind));
+    if (kinds.size !== 1 || kinds.has("profile")) throw new Error("A custom alternative requires one non-profile catalogue kind.");
+    const customLabel = selected[0].kind === "ui-architecture"
+      ? (locale === "ko" ? "다른 아키텍처 직접 지정" : "Specify another architecture")
+      : selected[0].kind === "state-management"
+        ? (locale === "ko" ? "다른 상태관리 구현 직접 지정" : "Specify another state-management implementation")
+        : (locale === "ko" ? "다른 기술 직접 지정" : "Specify another technology");
+    selected.push({
+      id: "custom", kind: selected[0].kind,
+      label: customLabel,
+      summary: locale === "ko" ? "기술 이름과 용도를 의견에 적으세요. 지원하지 않는 설정은 자동 생성되지 않습니다." : "Name the technology and purpose in the comment. Unsupported configuration is not generated automatically.",
+      tags: ["user-defined"], languages: [], path: "",
+      markdown: locale === "ko" ? "기술 이름, 사용 범위, 선택 이유를 적으세요. 이 선택은 계획에 기록되며 별도 구현·설정 검토가 필요합니다." : "Provide the technology name, scope, and reason. The plan records the choice; implementation and configuration need separate review."
+    });
+  }
 
   return {
     title: title || (locale === "ko" ? "카탈로그 후보 비교" : "Catalog candidate comparison"),
     locale,
+    allowCustom,
     entries: selected,
     guidance: locale === "ko"
       ? "후보를 비교한 뒤 선택과 의견을 채팅에 제출하세요. 이는 파일 변경이나 명령 실행 승인과는 별개입니다."
@@ -413,10 +511,23 @@ export function submitCatalogSelection(entries, { candidateIds, selectedId, comm
   if (!shownIds.length) throw new Error("candidateIds must include at least one catalogue ID.");
   if (!shownIds.includes(selectedId)) throw new Error("selectedId must be one of the candidateIds shown in the Catalog Explorer.");
 
-  const selected = byId.get(selectedId);
-  if (!selected) throw new Error(`Unknown catalogue ID: ${selectedId}`);
   const normalizedComment = typeof comment === "string" ? comment.trim() : "";
   if (normalizedComment.length > 2000) throw new Error("comment must be 2000 characters or fewer.");
+  if (selectedId === "custom") {
+    const ordinary = shownIds.filter((id) => id !== "custom").map((id) => byId.get(id));
+    if (ordinary.length === 0 || ordinary.some((entry) => !entry) || new Set(ordinary.map((entry) => entry.attributes.kind)).size !== 1) {
+      throw new Error("A custom selection requires shown candidates from one catalogue kind.");
+    }
+    if (!normalizedComment) throw new Error("A custom selection requires the technology name and purpose in its comment.");
+    return {
+      status: "accepted", source: "project-bootstrap.catalog-explorer", locale, candidateIds: shownIds,
+      selection: { id: "custom", kind: ordinary[0].attributes.kind, label: locale === "ko" ? "사용자 지정 선택" : "Custom choice", comment: normalizedComment, custom: true, suggestedIds: [] },
+      continuation: { replaceOnlyCurrentDecision: true, message: "Collect the exact technology name, purpose, and scope. Record it in customChoices; do not add an unsupported catalogue ID or infer a scaffold/configuration." },
+      safeguards: ["This is planning input only; it does not write files or run commands.", "Unsupported technology configuration requires a separate review and approval."]
+    };
+  }
+  const selected = byId.get(selectedId);
+  if (!selected) throw new Error(`Unknown catalogue ID: ${selectedId}`);
 
   return {
     status: "accepted",
@@ -823,7 +934,14 @@ export function recommend(entries, { requirements = {}, inventory = {}, locale =
         summary: entrySummary(profile, locale),
         score: result.score,
         reasons: result.reasons,
-        suggestedIds: asList(profile.attributes.suggests)
+        suggestedIds: asList(profile.attributes.suggests),
+        template: {
+          ids: asList(profile.attributes.suggests),
+          policy: "common-starting-point",
+          message: locale === "ko"
+            ? "보편적인 시작 조합입니다. 각 기술은 확정 전에 변경하거나 사용자 지정할 수 있습니다."
+            : "A common starting combination. Review, replace, or customize each technology before confirming."
+        }
       };
     })
     .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
@@ -835,11 +953,78 @@ function statusSummary(messages) {
   return "pass";
 }
 
-export function validateSelection(entries, { selectedIds, requirements = {}, inventory = {}, locale = "en" } = {}) {
+function normalizeCustomChoices(value) {
+  if (!Array.isArray(value) || value.length > 12) throw new Error("customChoices must be an array of at most 12 choices.");
+  const seen = new Set();
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item) || Object.keys(item).some((key) => !["category", "name", "purpose", "scope", "replacesId"].includes(key))) {
+      throw new Error("Invalid customChoices entry.");
+    }
+    const { category } = item;
+    if (!["language", "database", "framework", "tool", "architecture", "library"].includes(category)) throw new Error("Invalid custom choice category.");
+    const field = (key, limit, required) => {
+      const value = item[key];
+      if ((value === undefined || value === "") && !required) return undefined;
+      if (typeof value !== "string" || !value.trim() || value.length > limit || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid custom choice ${key}.`);
+      return value.trim();
+    };
+    const name = field("name", 80, true);
+    const purpose = field("purpose", 300, true);
+    const scope = field("scope", 120, false);
+    const replacesId = field("replacesId", 120, false);
+    if (["architecture", "library"].includes(category) && !scope) throw new Error(`Custom ${category} choices require a scope.`);
+    const key = `${category}\0${name.toLowerCase()}\0${(scope || "").toLowerCase()}`;
+    if (seen.has(key)) throw new Error("Duplicate custom choice.");
+    seen.add(key);
+    return { category, name, purpose, ...(scope ? { scope } : {}), ...(replacesId ? { replacesId } : {}) };
+  });
+}
+
+export function validateSelection(entries, { selectedIds, customChoices = [], requirements = {}, inventory = {}, locale = "en" } = {}) {
+  if (arguments[1]?.selection !== undefined) {
+    if (selectedIds !== undefined) throw new Error("Use either selection or selectedIds, not both.");
+    return validatePlatformSelection(arguments[1].selection, { inventory, requirements, hostPlatform: arguments[1].hostPlatform });
+  }
+  if (selectedIds === undefined) throw new Error("Provide selectedIds or selection.");
   const byId = new Map(entries.map((entry) => [entry.attributes.id, entry]));
   const selected = [...new Set(asList(selectedIds))];
   const selectedSet = new Set(selected);
+  const reviewedCustomChoices = normalizeCustomChoices(customChoices);
   const messages = [];
+
+  for (const choice of reviewedCustomChoices) {
+    if (choice.replacesId && !byId.has(choice.replacesId)) {
+      messages.push({ status: "block", code: "unknown-replaced-id", id: choice.replacesId, message: `Unknown replaced catalogue ID: ${choice.replacesId}` });
+    } else if (choice.replacesId && selectedSet.has(choice.replacesId)) {
+      messages.push({ status: "block", code: "custom-and-template-conflict", id: choice.replacesId, message: `Remove ${choice.replacesId} from selectedIds when replacing it with ${choice.name}.` });
+    }
+    messages.push({ status: "warning", code: "custom-technology-review", category: choice.category, name: choice.name,
+      message: `${choice.name} is a user-defined ${choice.category} choice. Record its purpose and scope; do not generate unsupported setup or claim catalogue compatibility.` });
+    const overlapping = choice.category === "language" ? selected.filter((id) => id.startsWith("language."))
+      : choice.category === "database" ? selected.filter((id) => asList(byId.get(id)?.attributes.tags).includes("primary-database")) : [];
+    if (overlapping.length && !choice.replacesId && !choice.scope) {
+      messages.push({ status: "block", code: "custom-overlap-review", category: choice.category, relatedIds: overlapping,
+        message: `Clarify whether ${choice.name} replaces or coexists with ${overlapping.join(", ")}, and record each role.` });
+    }
+  }
+
+  const primaryDatabases = selected.filter((id) => asList(byId.get(id)?.attributes.tags).includes("primary-database"));
+  if (primaryDatabases.length > 1) {
+    messages.push({ status: "warning", code: "multiple-primary-databases", relatedIds: primaryDatabases,
+      message: "Multiple primary databases were selected. Record each database's role, migration ownership, and backup boundary before implementation." });
+  }
+
+  if (selectedSet.has("mobile.android-native")) {
+    const appliesToAndroid = (choice) => /android/i.test(choice.scope || "") || choice.replacesId?.startsWith("android.");
+    const hasUiArchitecture = selected.some((id) => byId.get(id)?.attributes.kind === "ui-architecture")
+      || reviewedCustomChoices.some((choice) => choice.category === "architecture" && appliesToAndroid(choice));
+    const hasStateManagement = selected.some((id) => byId.get(id)?.attributes.kind === "state-management")
+      || reviewedCustomChoices.some((choice) => choice.category === "library" && appliesToAndroid(choice));
+    if (!hasUiArchitecture) messages.push({ status: "warning", code: "android-ui-architecture-undecided", id: "mobile.android-native",
+      message: "Choose an Android UI architecture (for example MVVM or MVI) or record a scoped custom architecture before implementation." });
+    if (!hasStateManagement) messages.push({ status: "warning", code: "android-state-management-undecided", id: "mobile.android-native",
+      message: "Choose an Android state-management implementation or record a scoped custom library before implementation." });
+  }
 
   for (const id of selected) {
     const entry = byId.get(id);
@@ -919,6 +1104,12 @@ export function validateSelection(entries, { selectedIds, requirements = {}, inv
 
   const selectedLanguages = selected.filter((id) => id.startsWith("language.")).map((id) => id.slice("language.".length));
   const existingLanguages = asList(inventory.languages);
+  for (const choice of reviewedCustomChoices.filter((item) => item.category === "language")) {
+    if (inventory.state === "existing" && existingLanguages.length && !existingLanguages.includes(choice.name.toLowerCase()) && requirements.runtimeChangeApproved !== true) {
+      messages.push({ status: "warning", code: "custom-existing-runtime-review", name: choice.name, existingLanguages,
+        message: `The workspace already uses ${existingLanguages.join(", ")}; preserve it until adding or migrating to ${choice.name} is explicitly reviewed.` });
+    }
+  }
   if (inventory.state === "existing" && selectedLanguages.length && requirements.runtimeChangeApproved !== true) {
     const omitted = existingLanguages.filter((language) => {
       if (selectedLanguages.includes(language)) return false;
@@ -931,7 +1122,7 @@ export function validateSelection(entries, { selectedIds, requirements = {}, inv
       message: `The workspace already uses ${omitted.join(", ")}. Preserve those runtimes; explicitly review an additional-runtime or migration decision before changing their setup.` });
   }
   if (!messages.length) messages.push({ status: "pass", code: "validated", message: "The selected catalogue rules passed." });
-  return { status: statusSummary(messages), selectedIds: selected, messages };
+  return { status: statusSummary(messages), selectedIds: selected, customChoices: reviewedCustomChoices, messages };
 }
 
 const COMMON_ARTIFACTS = [
@@ -953,6 +1144,51 @@ const DELIVERY_ARTIFACTS = {
   "delivery.github-actions": [[".github/workflows/ci.yml", "ci-workflow"]]
 };
 
+function deliveryReadiness(id, inventory, selectedIds, settings, customChoices = []) {
+  const files = new Set(asList(inventory.files));
+  if (id === "delivery.github-actions") {
+    const commands = asList(inventory.agentGuideEvidence?.verification?.commands)
+      .filter((item) => item.directory === "." && item.runtime === "node" && item.suitableForVerification)
+      .map((item) => item.command)
+      .filter((command) => /^npm run (?:test|lint|typecheck|build)$/.test(command));
+    const checks = [...new Set(commands)].sort();
+    if (!files.has("package.json") || !files.has("package-lock.json") || !checks.includes("npm run test") || !checks.includes("npm run build") || !settings.nodeVersion) {
+      return { ready: false, reason: "Active CI needs a root npm manifest and lockfile with declared test and build scripts, plus a reviewed Node.js version. Re-inspect after runtime setup." };
+    }
+    return {
+      ready: true,
+      content: [
+        "name: CI", "",
+        "on:", "  pull_request:", "  push:", "    branches: [main]", "",
+        "jobs:", "  verify:", "    runs-on: ubuntu-latest", "    steps:",
+        "      - uses: actions/checkout@v4",
+        "      - uses: actions/setup-node@v4",
+        "        with:", `          node-version: ${settings.nodeVersion}`, "          cache: npm",
+        "      - run: npm ci",
+        ...checks.map((command) => `      - run: ${command}`),
+        ""
+      ].join("\n")
+    };
+  }
+  if (id === "delivery.docker-compose") {
+    if (selectedIds.some((id) => ["data.postgresql", "data.mysql", "data.sqlite", "data.redis"].includes(id))
+      || customChoices.some((choice) => choice.category === "database")) {
+      return { ready: false, reason: "The selected data technology needs a separately reviewed local persistence or service design before Compose can be activated." };
+    }
+    if (!files.has("Dockerfile") || !files.has(".env.example") || !settings.containerPort) {
+      return { ready: false, reason: "Active Compose needs a root Dockerfile, an environment example, and a reviewed containerPort." };
+    }
+    return {
+      ready: true,
+      content: [
+        "services:", "  app:", "    build: .",
+        "    ports:", `      - "${settings.containerPort}:${settings.containerPort}"`, ""
+      ].join("\n")
+    };
+  }
+  return { ready: false, reason: "No active delivery renderer is available." };
+}
+
 const ADAPTER_ARTIFACTS = {
   "language.typescript": [["tsconfig.json", "typescript-compiler-config"], ["docs/architecture/interfaces/typescript.md", "typescript-interface-contract"]],
   "language.python": [["pyproject.toml", "python-project-config"], ["docs/architecture/interfaces/python.md", "python-interface-contract"]],
@@ -965,14 +1201,17 @@ const ADAPTER_ARTIFACTS = {
 
 function plannedAdapterArtifacts(selectedIds, inventory = {}) {
   const selected = new Set(selectedIds);
-  const expoOwnsTypeScriptConfig = selected.has("mobile.expo");
+  const runtimeOwnsTypeScriptConfig = selected.has("mobile.expo") || selected.has("frontend.nextjs");
   const artifacts = [];
   for (const id of selected) {
     for (const [file, template] of ADAPTER_ARTIFACTS[id] || []) {
+      // A generic JVM Gradle build and service interface are not an Android
+      // application scaffold. Preserve Android's own build and module layout.
+      if (selected.has("mobile.android-native") && id === "language.kotlin") continue;
       // create-expo-app owns the generated tsconfig and its Expo base extension.
       // Writing a generic root configuration first makes a later root scaffold fail
       // or leaves two conflicting TypeScript baselines.
-      if (expoOwnsTypeScriptConfig && file === "tsconfig.json") continue;
+      if (runtimeOwnsTypeScriptConfig && file === "tsconfig.json") continue;
       // Existing Maven/Groovy builds own their configuration; selecting a JVM
       // language does not select a replacement build system.
       if (file === "build.gradle.kts" && asList(inventory.files).some((entry) => /(^|\/)(pom\.xml|build\.gradle)$/.test(entry))) continue;
@@ -1004,6 +1243,14 @@ const EXPO_STANDARD_PATHS = [
   ".gitignore"
 ];
 
+function nextScaffoldExists(files, applicationPath) {
+  const prefix = applicationPath === "." ? "" : `${applicationPath}/`;
+  return ["next.config.js", "next.config.mjs", "next.config.ts"].some((name) => files.has(prefix + name))
+    && files.has(prefix + "package.json");
+}
+
+const NEXT_STANDARD_PATHS = ["package.json", "next.config.ts", "tsconfig.json", "src/app/", ".gitignore"];
+
 function normalizeFlutterProjectName(value) {
   let normalized = String(value || "app")
     .trim()
@@ -1020,10 +1267,22 @@ function workspaceFiles(inventory) {
 }
 
 
-function planRuntimeScaffolds(selectedIds, inventory, projectName) {
+function planRuntimeScaffolds(selectedIds, inventory, projectName, workspaceSettings = {}, customChoices = []) {
   const selected = new Set(selectedIds);
   const files = workspaceFiles(inventory);
   const scaffolds = [];
+
+  if (selected.has("mobile.android-native")) {
+    const existingAndroid = [...files].some((file) => /(^|\/)src\/main\/AndroidManifest\.xml$/.test(file));
+    scaffolds.push({
+      runtime: "android-native",
+      operation: existingAndroid ? "not-needed" : "manual-design-required",
+      reason: existingAndroid
+        ? "An Android project is present; preserve its Gradle and module configuration."
+        : "Native Android generation is not supported. Review a suitable Android Studio project scaffold and Gradle/SDK requirements separately; this plan records architecture choices only.",
+      approvalRequired: true
+    });
+  }
 
   if (selected.has("language.flutter")) {
     const flutterAlreadyExists = inventory.agentGuideEvidence?.verification?.areas?.some((area) => area.runtime === "flutter" && area.directory === ".") === true;
@@ -1100,6 +1359,62 @@ function planRuntimeScaffolds(selectedIds, inventory, projectName) {
     }
   }
 
+  if (selected.has("frontend.nextjs")) {
+    const monorepo = selected.has("repository.monorepo");
+    const applicationPath = workspaceSettings.applicationPath ?? (monorepo ? undefined : ".");
+    const knownPaths = applicationPath ? [applicationPath] : [".", "apps/web"];
+    const existingPath = knownPaths.find((candidate) => nextScaffoldExists(files, candidate));
+    const alternativePackageManager = customChoices.find((choice) => choice.category === "tool" && /^(pnpm|yarn|bun)$/i.test(choice.name)
+      && (!choice.scope || [".", "repository", "apps/web", applicationPath].includes(choice.scope)));
+    if (existingPath) {
+      scaffolds.push({
+        runtime: "nextjs",
+        operation: "not-needed",
+        scaffoldPath: existingPath,
+        reason: "An existing Next.js scaffold is present; preserve its package and TypeScript configuration.",
+        expectedPaths: NEXT_STANDARD_PATHS.map((item) => existingPath === "." ? item : `${existingPath}/${item}`),
+        approvalRequired: true
+      });
+    } else if (!applicationPath || (applicationPath === "apps/web" && !monorepo)) {
+      scaffolds.push({
+        runtime: "nextjs",
+        operation: "needs-layout-decision",
+        reason: "Choose the Next.js application path explicitly; apps/web requires repository.monorepo.",
+        choices: monorepo ? [".", "apps/web"] : ["."],
+        approvalRequired: true
+      });
+    } else if (alternativePackageManager) {
+      scaffolds.push({
+        runtime: "nextjs", operation: "needs-tooling-decision", scaffoldPath: applicationPath,
+        reason: `${alternativePackageManager.name} was chosen, but the supported Next.js template uses npm. Review a matching scaffold and workspace-install plan separately; no npm command is scheduled.`,
+        approvalRequired: true
+      });
+    } else if (files.size > 0) {
+      scaffolds.push({
+        runtime: "nextjs",
+        operation: "requires-empty-workspace",
+        scaffoldPath: applicationPath,
+        reason: "The workspace contains files but no Next.js scaffold. Review the existing layout before running a generator.",
+        expectedPaths: NEXT_STANDARD_PATHS.map((item) => applicationPath === "." ? item : `${applicationPath}/${item}`),
+        approvalRequired: true
+      });
+    } else {
+      scaffolds.push({
+        runtime: "nextjs",
+        operation: "generate",
+        scaffoldPath: applicationPath,
+        command: `npx create-next-app@latest ${applicationPath} --yes --typescript --eslint --app --src-dir --no-tailwind --no-agents-md --no-agent-feedback --use-npm --skip-install --disable-git`,
+        workingDirectory: "workspace root",
+        prerequisites: ["Node.js and npm are installed; confirm the generator's current version and options before approval."],
+        purpose: "Generate a standard Next.js application without installing dependencies or initializing Git.",
+        expectedPaths: NEXT_STANDARD_PATHS.map((item) => applicationPath === "." ? item : `${applicationPath}/${item}`),
+        networkEffect: "npx downloads the create-next-app generator; --skip-install avoids the application's dependency installation.",
+        postScaffold: "Re-inspect the workspace and create a fresh artifact plan. A monorepo needs a reviewed root workspace manifest before npm install.",
+        approvalRequired: true
+      });
+    }
+  }
+
   return scaffolds;
 }
 
@@ -1108,10 +1423,24 @@ const COLLABORATION_HOSTS = new Set(["none", "github", "gitlab", "other", "exist
 function normalizeWorkspaceSettings(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { collaborationHost: "none" };
   const keys = Object.keys(value);
-  if (keys.some((key) => key !== "collaborationHost")) throw new Error("Unknown workspaceSettings field.");
+  if (keys.some((key) => !["collaborationHost", "applicationPath", "nodeVersion", "containerPort"].includes(key))) throw new Error("Unknown workspaceSettings field.");
   const collaborationHost = value.collaborationHost ?? "none";
   if (!COLLABORATION_HOSTS.has(collaborationHost)) throw new Error("Invalid workspaceSettings.collaborationHost.");
-  return { collaborationHost };
+  if (value.applicationPath !== undefined && ![".", "apps/web"].includes(value.applicationPath)) {
+    throw new Error("Invalid workspaceSettings.applicationPath.");
+  }
+  if (value.nodeVersion !== undefined && !["20", "22", "24"].includes(value.nodeVersion)) {
+    throw new Error("Invalid workspaceSettings.nodeVersion.");
+  }
+  if (value.containerPort !== undefined && (!Number.isInteger(value.containerPort) || value.containerPort < 1 || value.containerPort > 65535)) {
+    throw new Error("Invalid workspaceSettings.containerPort.");
+  }
+  return {
+    collaborationHost,
+    ...(value.applicationPath ? { applicationPath: value.applicationPath } : {}),
+    ...(value.nodeVersion ? { nodeVersion: value.nodeVersion } : {}),
+    ...(value.containerPort ? { containerPort: value.containerPort } : {})
+  };
 }
 
 function workspaceConfigurationReview(inventory, workspaceSettings, guideDecisions) {
@@ -1183,8 +1512,13 @@ function blockedPlan(validation, message) {
   };
 }
 
-export function createPlan(entries, { selectedIds, projectName, requirements = {}, guideDecisions = {}, workspaceSettings = {}, inventory = {}, locale = "en" } = {}) {
-  const validation = validateSelection(entries, { selectedIds, requirements, inventory, locale });
+export function createPlan(entries, { selectedIds, customChoices = [], projectName, requirements = {}, guideDecisions = {}, workspaceSettings = {}, inventory = {}, locale = "en" } = {}) {
+  if (arguments[1]?.selection !== undefined) {
+    if (selectedIds !== undefined) throw new Error("Use either selection or selectedIds, not both.");
+    return createPlatformPlan(arguments[1].selection, { inventory, requirements: { ...requirements, collaborationHost: requirements.collaborationHost ?? workspaceSettings.collaborationHost }, hostPlatform: arguments[1].hostPlatform });
+  }
+  if (selectedIds === undefined) throw new Error("Provide selectedIds or selection.");
+  const validation = validateSelection(entries, { selectedIds, customChoices, requirements, inventory, locale });
   if (validation.status === "block") {
     return blockedPlan(validation, "Resolve blocking rules before requesting a writable plan.");
   }
@@ -1206,9 +1540,27 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
     allowPullRequest: normalizedWorkspaceSettings.collaborationHost === "github"
   });
   const agentsGuide = createAgentsGuideBlueprint(inventory, normalizedGuideDecisions.agents, { selectedIds, locale, projectName: projectName || requirements.projectName || "Project", catalogVersion: PLUGIN_VERSION });
-  const scaffolds = planRuntimeScaffolds(selectedIds, inventory, projectName || requirements.projectName);
-  const scaffoldFirst = scaffolds.some((scaffold) => scaffold.operation === "generate" && scaffold.scaffoldPath === ".");
+  const scaffolds = planRuntimeScaffolds(selectedIds, inventory, projectName || requirements.projectName, normalizedWorkspaceSettings, validation.customChoices);
+  const unresolvedScaffolds = scaffolds.filter((scaffold) => ["needs-layout-decision", "needs-tooling-decision", "requires-empty-workspace"].includes(scaffold.operation));
+  if (unresolvedScaffolds.length) {
+    return {
+      ...blockedPlan(validation, "Resolve the runtime layout or choose a suitable empty workspace before planning artifact writes."),
+      selectedIds: [...new Set(selectedIds)],
+      workspaceSettings: normalizedWorkspaceSettings,
+      scaffolds,
+      runtimeSetup: { artifactWritePhase: "pending-runtime-decision", reinspectionRequired: true }
+    };
+  }
+  const scaffoldFirst = scaffolds.some((scaffold) => scaffold.operation === "generate");
   const artifacts = [...COMMON_ARTIFACTS, ...plannedAdapterArtifacts(selectedIds, inventory), ...agentsGuide.supportingDocuments.map((document) => [document.path, "agents-evidence"])];
+  if (selectedIds.includes("mobile.android-native")) artifacts.push(["docs/architecture/android-ui.md", "android-ui-decision"]);
+  if (validation.customChoices.length) artifacts.push(["docs/project-bootstrap/custom-choices.md", "custom-choice-record"]);
+  const nextApplicationPath = scaffolds.find((scaffold) => scaffold.runtime === "nextjs")?.scaffoldPath;
+  const needsWorkspaceManifest = selectedIds.includes("frontend.nextjs")
+    && selectedIds.includes("repository.monorepo")
+    && nextApplicationPath === "apps/web"
+    && !asList(inventory.files).includes("package.json");
+  if (needsWorkspaceManifest) artifacts.push(["package.json", "npm-workspace-root"]);
   for (const id of selectedIds) {
     artifacts.push(...(DELIVERY_ARTIFACTS[id] || []));
   }
@@ -1220,6 +1572,41 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
     const plan = artifactOperation(file, template, inventory);
     if (file === "AGENTS.md") plan.content = agentsGuide.markdown;
     if (template === "agents-evidence") plan.content = agentsGuide.supportingDocuments.find((document) => document.path === file).content;
+    if (template === "custom-choice-record") {
+      plan.content = "# User-defined project choices\n\nThese choices are planning records, not generated integrations. Review compatibility, installation, configuration, verification, and operating requirements before implementation.\n\n"
+        + JSON.stringify(validation.customChoices, null, 2).split("\n").map((line) => `    ${line}`).join("\n") + "\n";
+    }
+    if (template === "android-ui-decision") {
+      const kindOf = (id) => entries.find((entry) => entry.attributes.id === id)?.attributes.kind;
+      const patternIds = selectedIds.filter((id) => kindOf(id) === "ui-architecture");
+      const stateIds = selectedIds.filter((id) => kindOf(id) === "state-management");
+      const customAndroid = validation.customChoices.filter((choice) => ["architecture", "library"].includes(choice.category)
+        && (/android/i.test(choice.scope) || choice.replacesId?.startsWith("android.")));
+      plan.content = [
+        "# Android UI architecture decision",
+        "",
+        "This record captures reviewed project choices, not an implemented Android application.",
+        "",
+        `- UI architecture: ${patternIds.length ? patternIds.join(", ") : "no catalogue pattern selected"}`,
+        `- State management: ${stateIds.length ? stateIds.join(", ") : "no catalogue implementation selected"}`,
+        `- Scoped custom choices: ${customAndroid.length ? customAndroid.map((choice) => `${choice.category} ${JSON.stringify(choice.name)} (${JSON.stringify(choice.scope)})`).join(", ") : "none"}`,
+        "",
+        "Keep screen state ownership, event handling, lifecycle collection, and test boundaries consistent with the selected combination. Review Android Gradle dependencies, versions, and migration separately before editing app code.",
+        ""
+      ].join("\n");
+    }
+    if (template === "npm-workspace-root") {
+      plan.content = JSON.stringify({ name: "project-workspace", private: true, workspaces: ["apps/*"] }, null, 2) + "\n";
+    }
+    const deliveryId = Object.keys(DELIVERY_ARTIFACTS).find((id) => DELIVERY_ARTIFACTS[id].some(([target]) => target === file));
+    if (deliveryId && plan.operation === "create") {
+      const readiness = deliveryReadiness(deliveryId, inventory, selectedIds, normalizedWorkspaceSettings, validation.customChoices);
+      if (readiness.ready) plan.content = readiness.content;
+      else {
+        plan.operation = "deferred";
+        plan.reason = readiness.reason;
+      }
+    }
     return scaffoldFirst && plan.operation === "create"
       ? { ...plan, phase: "post-runtime-scaffold" }
       : plan;
@@ -1244,11 +1631,12 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
       approvalRequired
     }));
 
-  const requiresReview = validation.status === "warning" || agentsGuide.status === "needs-confirmation" || plans.some((plan) => plan.operation === "merge-preview") || scaffolds.some((scaffold) => scaffold.operation === "requires-empty-workspace");
+  const requiresReview = validation.status === "warning" || agentsGuide.status === "needs-confirmation" || plans.some((plan) => ["merge-preview", "deferred"].includes(plan.operation)) || scaffolds.some((scaffold) => ["requires-empty-workspace", "needs-layout-decision", "manual-design-required"].includes(scaffold.operation));
   return {
     status: requiresReview ? "ready-with-warnings" : "ready",
     validation,
     selectedIds: [...new Set(selectedIds)],
+    customChoices: validation.customChoices,
     guidePolicySchemaVersion: GUIDE_POLICY_SCHEMA_VERSION,
     guideDecisions: normalizedGuideDecisions,
     agentsGuide,
@@ -1260,10 +1648,17 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
       artifactWritePhase: scaffoldFirst ? "post-runtime-scaffold" : "ready",
       reinspectionRequired: scaffoldFirst,
       message: scaffoldFirst
-        ? "A root runtime scaffold must be approved and completed before bootstrap artifacts are written. Re-inspect and create a fresh plan after generation so guides use the real repository map and declared verification scripts."
-        : "No root runtime scaffold is pending before bootstrap artifact generation."
+        ? "A runtime scaffold must be approved and completed before bootstrap artifacts are written. Re-inspect and create a fresh plan after generation so guides use the real repository map and declared verification scripts."
+        : "No runtime scaffold is pending before bootstrap artifact generation."
     },
-    commands: scaffoldCommands.length ? scaffoldCommands : [
+    commands: scaffoldCommands.length ? scaffoldCommands : needsWorkspaceManifest ? [{
+      command: "npm install",
+      workingDirectory: "workspace root",
+      purpose: "Install the generated Next.js workspace dependencies and create the root lockfile after the reviewed workspace manifest is written.",
+      networkEffect: "Downloads application dependencies.",
+      expectedPaths: ["package-lock.json", "node_modules/"],
+      approvalRequired: true
+    }] : [
       {
         command: "No command is scheduled by default.",
         purpose: "This plan only creates documentation and configuration drafts after file-plan approval.",
@@ -1276,6 +1671,124 @@ export function createPlan(entries, { selectedIds, projectName, requirements = {
       "Existing .codex/config.toml files are preserved and never rewritten by this plugin.",
       "Dependency installation, runtime scaffolding commands, and Git operations require separate approval."
     ]
+  };
+}
+
+function reviewedRelativePath(value) {
+  if (typeof value !== "string" || !value.trim() || value.includes("\\") || value.startsWith("/") || value.includes("\0")) {
+    throw new Error("Evidence paths must be non-empty workspace-relative POSIX paths.");
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error("Evidence paths cannot contain empty, dot, or parent segments.");
+  }
+  return value;
+}
+
+function reviewedDirectory(value) {
+  return value === "." ? "." : reviewedRelativePath(value);
+}
+
+function checkKey(directory, command) {
+  return `${directory}\0${command}`;
+}
+
+export async function assessImplementation({ root, requirements = [], reportedChecks = [] } = {}) {
+  if (!Array.isArray(requirements) || requirements.length > 30 || !Array.isArray(reportedChecks) || reportedChecks.length > 40) {
+    throw new Error("Assessment input exceeds the supported bounds.");
+  }
+  const inventory = await inspectWorkspace({ root, maxDepth: 12, maxFiles: 2000 });
+  if (inventory.truncated || inventory.agentGuideEvidence.verification.collection.complete === false) {
+    return { status: "blocked", reason: "Workspace inventory or metadata collection is incomplete; no coverage conclusion is possible." };
+  }
+  const files = new Set(inventory.files);
+  const ids = new Set();
+  const reported = new Map();
+  for (const item of reportedChecks) {
+    if (!item || typeof item.command !== "string" || !item.command.trim() || !["passed", "failed", "unavailable"].includes(item.status) || typeof item.source !== "string" || !item.source.trim()) {
+      throw new Error("Each reported check needs a command, status, and non-empty source.");
+    }
+    const directory = reviewedDirectory(item.directory ?? ".");
+    const key = checkKey(directory, item.command);
+    if (reported.has(key)) throw new Error("Duplicate reported check command and directory.");
+    reported.set(key, { directory, command: item.command, status: item.status, source: item.source });
+  }
+  const declared = inventory.agentGuideEvidence.verification.commands
+    .filter((item) => item.suitableForVerification)
+    .map((item) => ({ command: item.command, directory: item.directory, workingDirectory: item.workingDirectory, kind: item.kind }));
+  const declaredCommands = new Set(declared.map((item) => checkKey(item.directory, item.command)));
+  const checks = declared.map((item) => ({
+    ...item,
+    status: reported.get(checkKey(item.directory, item.command))?.status ?? "not-run",
+    source: reported.get(checkKey(item.directory, item.command))?.source ?? null,
+    provenance: reported.has(checkKey(item.directory, item.command)) ? "caller-reported" : "inventory-only"
+  }));
+  const criteria = requirements.map((item) => {
+    if (!item || typeof item.id !== "string" || !item.id.trim() || ids.has(item.id) || typeof item.description !== "string" || !item.description.trim()) {
+      throw new Error("Each requirement needs a unique ID and description.");
+    }
+    ids.add(item.id);
+    if (!Array.isArray(item.evidencePaths ?? [])) throw new Error("Requirement evidencePaths must be an array.");
+    const paths = (item.evidencePaths ?? []).map(reviewedRelativePath);
+    const checkDirectory = reviewedDirectory(item.checkDirectory ?? ".");
+    const checkCommands = item.checkCommands ?? [];
+    if (!Array.isArray(checkCommands) || checkCommands.some((command) => typeof command !== "string")) {
+      throw new Error("Requirement checkCommands must be strings.");
+    }
+    const criterionChecks = checkCommands.map((command) => ({
+      command,
+      directory: checkDirectory,
+      status: reported.get(checkKey(checkDirectory, command))?.status ?? "not-run",
+      declared: declaredCommands.has(checkKey(checkDirectory, command)),
+      provenance: reported.has(checkKey(checkDirectory, command)) ? "caller-reported" : "inventory-only"
+    }));
+    return {
+      id: item.id,
+      description: item.description,
+      presentPaths: paths.filter((file) => files.has(file)),
+      missingPaths: paths.filter((file) => !files.has(file)),
+      checks: criterionChecks,
+      status: paths.length === 0 ? "unmapped"
+        : paths.some((file) => !files.has(file)) ? "missing-file-evidence"
+          : criterionChecks.some((check) => check.status === "failed") ? "reported-check-failed"
+            : "requires-behavior-review"
+    };
+  });
+  const drift = [];
+  for (const file of ["README.md", "docs/architecture/overview.md"]) {
+    if (!files.has(file)) continue;
+    const absolute = path.join(inventory.root, file);
+    if ((await fs.stat(absolute)).size > 128_000) continue;
+    const content = await fs.readFile(absolute, "utf8");
+    const hasProductSource = inventory.files.some((candidate) => /(?:^|\/)src\/app\/api\/|(?:^|\/)src\/components\//.test(candidate));
+    const hasSchema = inventory.files.some((candidate) => /(?:^|\/)src\/lib\/db\/schema\.[cm]?[jt]s$/.test(candidate));
+    if (hasProductSource && /(?:no product implementation|no product workflows|제품 기능이 없)/i.test(content)) {
+      drift.push({ path: file, code: "stale-product-absence", message: "Document says product functionality is absent while product source paths exist; review the statement." });
+    }
+    if (hasSchema && /(?:no (?:product .*?, )?database schema|no data schema|데이터 스키마가 없)/i.test(content)) {
+      drift.push({ path: file, code: "stale-schema-absence", message: "Document says a schema is absent while a schema path exists; review the statement." });
+    }
+  }
+  const reviewPrompts = [];
+  if (inventory.files.some((file) => /(?:^|\/)src\/lib\/db\/schema\.[cm]?[jt]s$/.test(file))) {
+    reviewPrompts.push("Check database pool lifetime, migration execution, transaction boundaries, and integration tests against a migrated database.");
+  }
+  if (inventory.files.some((file) => /(?:^|\/)src\/app\/edit\//.test(file))) {
+    reviewPrompts.push("Check editor-link leakage, server-side authorization on every mutation, session lifetime, and secret rotation.");
+  }
+  if (inventory.files.some((file) => /(?:^|\/)rate-limit\.[cm]?[jt]s$/.test(file))) {
+    reviewPrompts.push("Check the trusted client address source and whether rate limits work across processes and instances.");
+  }
+  return {
+    status: "needs-review",
+    root: inventory.root,
+    inventoryComplete: true,
+    criteria,
+    checks,
+    unrecognizedReportedChecks: [...reported.entries()].filter(([key]) => !declaredCommands.has(key)).map(([, value]) => ({ directory: value.directory, command: value.command })),
+    documentationDrift: drift,
+    reviewPrompts,
+    limitation: "File presence and caller-reported check results do not establish acceptance behavior. Review code and execute relevant checks before claiming implementation complete."
   };
 }
 
@@ -1315,18 +1828,20 @@ export function checkUpdates({ installedVersion = PLUGIN_VERSION, availableVersi
 }
 
 export async function invokeTool(name, args = {}) {
-  const catalog = ["inspect_workspace", "list_workspace_guide_policies", "render_workspace_guide_configurator", "submit_workspace_guide_configuration", "check_updates"].includes(name) ? undefined : await loadCatalog();
+  const catalog = ["inspect_workspace", "assess_implementation", "list_workspace_guide_policies", "render_workspace_guide_configurator", "submit_workspace_guide_configuration", "check_updates", "list_platform_choices"].includes(name) ? undefined : await loadCatalog();
   switch (name) {
     case "inspect_workspace": return inspectWorkspace(args);
+    case "assess_implementation": return assessImplementation(args);
     case "list_workspace_guide_policies": return { schemaVersion: GUIDE_POLICY_SCHEMA_VERSION, guides: listGuidePolicies(args) };
     case "render_workspace_guide_configurator": return createWorkspaceGuideConfigurator(args);
     case "submit_workspace_guide_configuration": return submitWorkspaceGuideConfiguration(args);
+    case "list_platform_choices": return listPlatformChoices(args);
     case "list_catalog": return listCatalog(catalog, args);
     case "render_catalog_explorer": return createCatalogExplorer(catalog, args);
     case "submit_catalog_selection": return submitCatalogSelection(catalog, args);
     case "recommend": return recommend(catalog, args);
     case "validate_selection": return validateSelection(catalog, args);
-    case "create_plan": return createPlan(catalog, args);
+    case "create_plan": return createPlan(catalog, { ...args, hostPlatform: undefined });
     case "check_updates": return checkUpdates(args);
     default: throw new Error(`Unknown tool: ${name}`);
   }
