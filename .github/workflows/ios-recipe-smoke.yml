@@ -22,7 +22,7 @@ jobs:
           - name: swiftdata
             choices: architecture=ios.mvvm database=ios.swiftdata
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-ios-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-ios-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -9,9 +9,12 @@ import { renderPlatformRecipe } from "../server/src/platform-recipes.js";
 const [platformId, ...rawChoices] = process.argv.slice(2);
 const output = process.env.RECIPE_OUTPUT_DIR;
 const tempRoots = [tmpdir(), process.env.RUNNER_TEMP].filter(Boolean).map((item) => resolve(item));
+if (process.env.CI === "true" && process.env.GITHUB_WORKSPACE) {
+  tempRoots.push(resolve(process.env.GITHUB_WORKSPACE, ".recipe-smoke"));
+}
 const destination = output && resolve(output);
 if (!platformId || !destination || !isAbsolute(output) || !tempRoots.some((root) => destination.startsWith(`${root}${sep}`)) || existsSync(destination)) {
-  throw new Error("Provide a platform and a fresh absolute RECIPE_OUTPUT_DIR beneath the OS or CI runner temp directory.");
+  throw new Error("Provide a platform and a fresh absolute RECIPE_OUTPUT_DIR beneath the OS temp, runner temp, or CI workspace .recipe-smoke directory.");
 }
 const choices = Object.fromEntries(rawChoices.map((entry) => {
   const separator = entry.indexOf("=");

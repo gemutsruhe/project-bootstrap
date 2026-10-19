@@ -22,7 +22,7 @@ jobs:
           - name: zustand
             choices: framework=web.nextjs state=web.zustand
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-web-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-web-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,7 +43,7 @@ jobs:
       matrix:
         database: [data.postgresql, data.sqlite, data.mysql]
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-web-${{ matrix.database }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-web-${{ matrix.database }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -74,7 +74,7 @@ jobs:
           - name: mysql
             choices: database=data.mysql
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-api-nest-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-api-nest-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -116,7 +116,7 @@ jobs:
             platform: data
             choices: architecture=data.api
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -144,7 +144,7 @@ jobs:
           - name: redux
             choices: state=expo.redux
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-expo-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-expo-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -171,7 +171,7 @@ jobs:
           - name: redux
             choices: state=desktop.redux
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-electron-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-electron-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -200,7 +200,7 @@ jobs:
           - name: mysql
             choices: database=data.mysql
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-go-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-go-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -232,7 +232,7 @@ jobs:
           - name: mysql
             choices: database=data.mysql
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-dotnet-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-dotnet-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -270,7 +270,7 @@ jobs:
           - name: ktor-mysql
             choices: framework=api.ktor database=data.mysql
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -304,7 +304,7 @@ jobs:
           - name: sqlite
             choices: database=flutter.sqflite
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-flutter-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-flutter-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -336,7 +336,7 @@ jobs:
           - name: koin-room
             choices: dependencyInjection=android.koin database=android.room
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-android-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-android-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -366,7 +366,7 @@ jobs:
           - name: sqlite
             choices: database=desktop.sqlite
     env:
-      RECIPE_OUTPUT_DIR: ${{ runner.temp }}/project-bootstrap-tauri-${{ matrix.name }}
+      RECIPE_OUTPUT_DIR: ${{ github.workspace }}/.recipe-smoke/project-bootstrap-tauri-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -99,7 +99,7 @@ test("catalog explorer includes localized candidate metadata and the packaged Ma
   assert.equal(explorer.title, "시작 프로필 비교");
   assert.equal(explorer.entries.length, 2);
   assert.match(explorer.entries[0].label, /웹/);
-  assert.match(explorer.entries[0].markdown, /^---\n/);
+  assert.match(explorer.entries[0].markdown, /^---\r?\n/);
   assert.match(explorer.entries[0].markdown, /title_ko:/);
 });
 

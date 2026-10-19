@@ -137,7 +137,7 @@ test("Catalog Explorer output is read-only structured data", async () => {
   });
   assert.equal(result.result.isError, false);
   assert.equal(result.result.structuredContent.entries[0].id, "profile.web-fullstack");
-  assert.match(result.result.structuredContent.entries[0].markdown, /^---\n/);
+  assert.match(result.result.structuredContent.entries[0].markdown, /^---\r?\n/);
   assert.match(result.result.content[0].text, /Catalog Explorer is ready/);
   assert.doesNotMatch(result.result.content[0].text, /title_ko:/);
 });
