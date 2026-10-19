@@ -159,6 +159,11 @@ test("smoke-discovered runtime prerequisites stay in generated recipes", () => {
   assert.equal(tauriPackage.scripts.predev, "tauri icon app-icon.svg");
   assert.equal(tauriPackage.scripts.prebuild, "tauri icon app-icon.svg");
   assert.match(file(tauri, "app-icon.svg"), /<svg/);
+  const tca = planned("ios", { architecture: "ios.tca" });
+  assert.match(file(tca, "Sources/AppFeature.swift"), /struct AppFeature: Reducer/);
+  assert.doesNotMatch(file(tca, "Sources/AppFeature.swift"), /@Reducer|@ObservableState/);
+  assert.match(file(tca, "Sources/BootstrapApp.swift"), /ContentView\(store: Store/);
+  assert.match(file(tca, "Sources/ContentView.swift"), /WithViewStore/);
 });
 
 test("defaults require explicit acceptance and optional external services remain off", () => {
