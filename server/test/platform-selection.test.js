@@ -36,6 +36,8 @@ test("every exposed alternative is accepted and changes the normalized decision"
         if (option.id === "android.orbit" || option.id === "android.mavericks") overrides.architecture = "android.mvi";
         if (option.id === "flutter.bloc") overrides.architecture = "flutter.bloc-pattern";
         if (option.id === "flutter.bloc-pattern") overrides.state = "flutter.bloc";
+        if (option.id === "ios.tca-store") overrides.architecture = "ios.tca";
+        if (option.id === "ios.tca") overrides.state = "ios.tca-store";
         if (option.id === "delivery.github-actions") continue; // Host setting is tested separately.
         if (platformId === "web" && option.id === "data.postgresql") overrides.framework = "web.nextjs";
         if (platformId === "web" && option.id === "data.sqlite") overrides.framework = "web.nextjs";
@@ -49,16 +51,18 @@ test("every exposed alternative is accepted and changes the normalized decision"
   }
 });
 
-test("preview alternatives change at least one runtime artifact", () => {
+test("verified alternatives change at least one runtime artifact", () => {
   const runtime = (recipe) => recipe.artifacts.filter((item) => !item.path.endsWith(".md")).map((item) => `${item.path}\n${item.content}`).join("\n");
   for (const [platformId, platform] of Object.entries(PLATFORM_CATALOG)) {
     const baseline = validateSelection([], { selection: selection(target(platformId)), hostPlatform: "macos" }).targets[0];
     for (const [slotName, slot] of Object.entries(platform.slots)) for (const option of slot.options) {
-      if (option.generation !== "recipe-preview" || option.id === slot.defaultId) continue;
+      if (option.generation !== "verified-recipe" || option.id === slot.defaultId) continue;
       const overrides = { [slotName]: slot.multiple ? [option.id] : option.id };
       if (option.id === "android.orbit" || option.id === "android.mavericks") overrides.architecture = "android.mvi";
       if (option.id === "flutter.bloc") overrides.architecture = "flutter.bloc-pattern";
       if (option.id === "flutter.bloc-pattern") overrides.state = "flutter.bloc";
+      if (option.id === "ios.tca-store") overrides.architecture = "ios.tca";
+      if (option.id === "ios.tca") overrides.state = "ios.tca-store";
       const selected = validateSelection([], { selection: selection(target(platformId, overrides)), hostPlatform: "macos" });
       assert.notEqual(selected.status, "block");
       assert.notEqual(runtime(renderPlatformRecipe(selected.targets[0])), runtime(renderPlatformRecipe(baseline)), `${option.id} only changed documentation`);
@@ -164,6 +168,11 @@ test("smoke-discovered runtime prerequisites stay in generated recipes", () => {
   assert.doesNotMatch(file(tca, "Sources/AppFeature.swift"), /@Reducer|@ObservableState/);
   assert.match(file(tca, "Sources/BootstrapApp.swift"), /ContentView\(store: Store/);
   assert.match(file(tca, "Sources/ContentView.swift"), /WithViewStore/);
+  const tcaSelection = validateSelection([], { selection: selection(target("ios", { architecture: "ios.tca" })), hostPlatform: "macos" });
+  assert.equal(tcaSelection.targets[0].choices.state, "ios.tca-store");
+  const mixedIosState = validateSelection([], { selection: selection(target("ios", { architecture: "ios.tca", state: "ios.observation" })), hostPlatform: "macos" });
+  assert.equal(mixedIosState.status, "block");
+  assert.ok(mixedIosState.messages.some((item) => item.code === "tca-requires-store"));
 });
 
 test("defaults require explicit acceptance and optional external services remain off", () => {
@@ -184,17 +193,17 @@ test("defaults require explicit acceptance and optional external services remain
   assert.equal(kotlinApi.targets[0].choices.database, "data.postgresql");
 });
 
-test("existing files, Windows iOS, and custom research are never presented as approved generation", () => {
+test("verified recipes remain approval-gated and existing files, Windows iOS, and custom research are protected", () => {
   const flutter = createPlatformPlan(selection(target("flutter")), { hostPlatform: "linux" });
-  assert.equal(flutter.status, "recipe-preview");
+  assert.equal(flutter.status, "awaiting-scaffold");
   assert.ok(flutter.artifacts.every((item) => item.phase === "post-runtime-scaffold"));
-  assert.equal(flutter.commands.length, 0);
-  assert.ok(flutter.pendingCommands.some((item) => item.command.startsWith("flutter create ")));
+  assert.ok(flutter.commands.some((item) => item.command.startsWith("flutter create ")));
+  assert.ok(flutter.commands.every((item) => item.approvalRequired));
   const occupiedFlutter = createPlatformPlan(selection(target("flutter")), { inventory: { state: "existing", files: ["README.md"] }, hostPlatform: "linux" });
   assert.equal(occupiedFlutter.status, "migration-review");
   assert.equal(occupiedFlutter.commands.length, 0);
   const ios = createPlan([], { selection: selection(target("ios")), hostPlatform: "windows" });
-  assert.equal(ios.status, "recipe-preview");
+  assert.equal(ios.status, "ready-with-deferred-files");
   assert.ok(ios.artifacts.filter((item) => item.targetId === "ios").every((item) => item.operation === "deferred"));
   assert.equal(ios.commands.length, 0);
   const existing = createPlatformPlan(selection(target("web")), { inventory: { state: "existing", files: ["web/package.json"] }, hostPlatform: "linux" });
@@ -208,9 +217,10 @@ test("existing files, Windows iOS, and custom research are never presented as ap
   assert.equal(conditional.status, "needs-integration-review");
   assert.equal(conditional.commands.length, 0);
   const fresh = createPlatformPlan(selection(target("web")), { hostPlatform: "linux" });
-  assert.equal(fresh.status, "recipe-preview");
-  assert.equal(fresh.commands.length, 0);
-  assert.ok(fresh.artifacts.every((item) => item.operation !== "create"));
+  assert.equal(fresh.status, "ready");
+  assert.ok(fresh.commands.length > 0);
+  assert.ok(fresh.commands.every((item) => item.approvalRequired));
+  assert.ok(fresh.artifacts.every((item) => item.operation === "create" && item.approvalRequired));
 });
 
 test("public MCP tools expose v2 while legacy selection remains available", async () => {

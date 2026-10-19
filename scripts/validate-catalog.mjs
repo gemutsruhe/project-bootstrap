@@ -25,7 +25,7 @@ for (const [platformId, platform] of Object.entries(PLATFORM_CATALOG)) {
     for (const choice of slot.options) {
       if (platformIds.has(choice.id) && !["data.postgresql", "data.sqlite", "data.mysql", "security.oidc", "observability.opentelemetry", "delivery.docker-compose", "delivery.github-actions"].includes(choice.id)) problems.push(`duplicate platform option: ${choice.id}`);
       platformIds.add(choice.id);
-      if (!choice.versionBaseline || !choice.reason || !["recipe-preview", "conditional-review"].includes(choice.generation)) problems.push(`${choice.id}: incomplete release metadata`);
+      if (!choice.versionBaseline || !choice.reason || !["verified-recipe", "recipe-preview", "conditional-review"].includes(choice.generation)) problems.push(`${choice.id}: incomplete release metadata`);
       if (!choice.evidence.length || choice.evidence.some((source) => !/^https:\/\//.test(source.url) || !/^\d{4}-\d{2}-\d{2}$/.test(source.observedAt))) problems.push(`${choice.id}: invalid evidence`);
     }
   }

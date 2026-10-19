@@ -1,6 +1,6 @@
 // Release-reviewed platform choices. The legacy Markdown catalogue remains supported.
 export const PLATFORM_SELECTION_VERSION = 2;
-export const PLATFORM_CATALOG_VERSION = "2026.10.4";
+export const PLATFORM_CATALOG_VERSION = "2026.10.5";
 
 const observedAt = "2026-10-19";
 const SOURCES = {
@@ -15,7 +15,7 @@ const SOURCES = {
 };
 const source = (key) => ({ type: SOURCES[key][0], url: SOURCES[key][1], observedAt });
 const choices = (sourceKey, rows) => rows.map(([id, label, versionBaseline, reason]) => ({
-  id, label, versionBaseline, reason, evidence: [source(sourceKey)], generation: "recipe-preview"
+  id, label, versionBaseline, reason, evidence: [source(sourceKey)], generation: "verified-recipe"
 }));
 const slot = (sourceKey, defaultId, rows, multiple = false) => ({
   required: !!defaultId, defaultId: defaultId || null, multiple,
@@ -89,7 +89,7 @@ export const PLATFORM_CATALOG = {
   } },
   ios: { label: "Native iOS", slots: {
     architecture: slot("apple", "ios.mvvm", [["ios.mvvm", "SwiftUI MVVM", "iOS 17+", "View models with Observation."], ["ios.tca", "The Composable Architecture", "TCA 1.26.2", "Reducer-driven effects and state on iOS 17+."]]),
-    state: slot("apple", "ios.observation", [["ios.observation", "Observation", "iOS 17+", "Native @Observable state."]]),
+    state: slot("apple", "ios.observation", [["ios.observation", "Observation", "iOS 17+", "Native @Observable state for SwiftUI MVVM."], ["ios.tca-store", "TCA Store + ViewStore", "TCA 1.26.2", "Reducer-owned state and view observation without Swift macros."]]),
     database: slot("apple", null, [["ios.swiftdata", "SwiftData", "iOS 17+", "Native persistent models."]]),
     testing: slot("apple", "ios.swift-testing", [["ios.swift-testing", "Swift Testing", "Xcode 16+", "Native Swift test baseline."]])
   } },
@@ -128,6 +128,7 @@ const OFFICIAL_REFERENCES = {
   "android.mavericks": "https://airbnb.io/mavericks/", "android.orbit": "https://orbit-mvi.org/",
   "flutter.riverpod": "https://riverpod.dev/", "flutter.bloc": "https://bloclibrary.dev/",
   "ios.tca": "https://pointfreeco.github.io/swift-composable-architecture/main/documentation/composablearchitecture/",
+  "ios.tca-store": "https://pointfreeco.github.io/swift-composable-architecture/main/documentation/composablearchitecture/",
   "ios.swiftdata": "https://developer.apple.com/documentation/swiftdata",
   "data.pandas": "https://pandas.pydata.org/docs/", "data.polars": "https://docs.pola.rs/"
 };
@@ -159,7 +160,7 @@ const LIBRARY_ONLY_EVIDENCE = new Set([
   "api.python", "api.typescript", "api.java", "api.kotlin", "api.go-language", "api.csharp",
   "web.zustand", "expo.zustand", "desktop.zustand", "web.redux", "expo.redux", "desktop.redux", "web.tanstack-query",
   "android.hilt", "android.koin", "android.room", "android.mavericks", "android.orbit",
-  "flutter.riverpod", "flutter.bloc", "ios.tca", "ios.swiftdata"
+  "flutter.riverpod", "flutter.bloc", "ios.tca", "ios.tca-store", "ios.swiftdata"
 ]);
 const FOCUSED_REFERENCES = {
   "web.vitest-playwright": ["https://vitest.dev/guide/", "https://playwright.dev/docs/intro"],
@@ -186,6 +187,7 @@ for (const platform of Object.values(PLATFORM_CATALOG)) {
 }
 
 export function recommendedPlatformDefault(platformId, slotKey, requirements = {}) {
+  if (platformId === "ios" && slotKey === "state" && requirements.architectureId === "ios.tca") return "ios.tca-store";
   if (platformId === "web" && slotKey === "framework" && requirements.productType === "spa") return "web.vite";
   if (platformId === "api" && slotKey === "language") {
     const byLanguage = { python: "api.python", typescript: "api.typescript", java: "api.java", kotlin: "api.kotlin", go: "api.go-language", csharp: "api.csharp", "c#": "api.csharp" };
@@ -209,6 +211,6 @@ export function listPlatformChoices({ platformId, locale = "en", requirements = 
   return {
     schemaVersion: PLATFORM_SELECTION_VERSION, catalogVersion: PLATFORM_CATALOG_VERSION, locale,
     platforms: selected.map(([id, platform]) => ({ id, label: platform.label, slots: Object.entries(platform.slots).map(([key, value]) => ({ key, ...value, defaultId: recommendedPlatformDefault(id, key, requirements) })) })),
-    note: "Defaults are suggestions. Set useDefaults: true or specify every required slot. Recipe-preview options need platform build verification before a release can label them generation-ready. External services need a separate integration review."
+    note: "Defaults are suggestions. Set useDefaults: true or specify every required slot. Verified recipes still require separate file and command approval; external services need a separate integration review."
   };
 }

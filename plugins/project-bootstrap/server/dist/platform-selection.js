@@ -69,7 +69,7 @@ function validateTarget(raw, index, messages, requirements) {
       const preferredLanguage = raw.platformId === "api" && choices.language ? choices.language === "api.go-language" ? "go" : choices.language.slice(4) : requirements.preferredLanguage;
       const recommended = raw.platformId === "api" && key === "language" && choices.framework
         ? API_LANGUAGE_BY_FRAMEWORK[choices.framework]
-        : recommendedPlatformDefault(raw.platformId, key, { ...requirements, preferredLanguage });
+        : recommendedPlatformDefault(raw.platformId, key, { ...requirements, preferredLanguage, architectureId: choices.architecture || requirements.architectureId });
       if (choices[key] === undefined && raw?.useDefaults === true && recommended) choices[key] = recommended;
       if (choices[key] === undefined && definition.required) {
         messages.push(message("block", "missing-required-slot", id, `Choose ${raw.platformId}.${key} or explicitly accept its default.`, [recommended]));
@@ -110,6 +110,8 @@ export function validatePlatformSelection(selection, { inventory = {}, hostPlatf
     if (c.state === "android.mavericks" && c.architecture !== "android.mvi") messages.push(message("block", "mavericks-requires-mvi", id, "The Mavericks recipe requires the Android MVI architecture.", ["android.mvi"]));
     if (c.state === "flutter.bloc" && c.architecture !== "flutter.bloc-pattern") messages.push(message("block", "bloc-requires-pattern", id, "flutter_bloc requires the BLoC architecture recipe.", ["flutter.bloc-pattern"]));
     if (c.architecture === "flutter.bloc-pattern" && c.state !== "flutter.bloc") messages.push(message("block", "bloc-pattern-requires-library", id, "The BLoC architecture recipe requires flutter_bloc.", ["flutter.bloc"]));
+    if (platformId === "ios" && c.architecture === "ios.tca" && c.state !== "ios.tca-store") messages.push(message("block", "tca-requires-store", id, "The TCA recipe uses Store and ViewStore state observation, not the standalone MVVM Observation model.", ["ios.tca-store"]));
+    if (platformId === "ios" && c.architecture === "ios.mvvm" && c.state !== "ios.observation") messages.push(message("block", "mvvm-requires-observation", id, "The SwiftUI MVVM recipe uses Observation; choose TCA architecture for TCA Store state.", ["ios.observation", "ios.tca"]));
     if (platformId === "web" && c.framework === "web.vite" && c.database) {
       messages.push(message("block", "spa-database-needs-api", id, "A browser-only Vite app must not connect directly to a server database. Assign the database to a separate API target instead.", ["api.fastapi", "api.nestjs"]));
     }
