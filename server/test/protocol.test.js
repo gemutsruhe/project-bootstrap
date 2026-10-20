@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import test from "node:test";
-import { handleRequest, startStdioServer } from "../src/index.js";
+import { configuredServerName, configuredServerVersion, exposedToolDefinitions, handleRequest, startStdioServer } from "../src/index.js";
 
 test("MCP initialize exposes a tool-capable local server", async () => {
   const result = await handleRequest({
@@ -28,6 +28,15 @@ test("MCP lists read-only planning tools and the Catalog Explorer UI tool", asyn
   const configurator = result.result.tools.find((tool) => tool.name === "render_workspace_guide_configurator");
   assert.equal(configurator._meta.ui.resourceUri, "ui://project-bootstrap/workspace-guide-configurator-v1.html");
   assert.equal(configurator.annotations.readOnlyHint, true);
+});
+
+test("Project Maintenance exposes only read-only assessment tools", () => {
+  assert.equal(configuredServerName(["node", "index.js", "--server-name", "project-maintenance"]), "project-maintenance");
+  assert.equal(configuredServerVersion(["node", "index.js", "--server-version", "0.1.0"]), "0.1.0");
+  assert.deepEqual(
+    exposedToolDefinitions("project-maintenance").map((tool) => tool.name),
+    ["inspect_workspace", "assess_implementation"]
+  );
 });
 
 test("MCP exposes the versioned workspace-guide policy catalogue without writes", async () => {

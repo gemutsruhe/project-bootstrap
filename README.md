@@ -1,8 +1,11 @@
 # Codex Project Bootstrap
 
-Codex Project Bootstrap is a public GitHub marketplace containing a desktop-only Codex plugin and a local, read-only MCP server. It helps a user select, validate, document, and safely apply an initial project setup in the **local workspace currently open in Codex**.
+Codex Project Bootstrap is a public GitHub marketplace containing desktop-only Codex plugins and local, read-only MCP servers for the **local workspace currently open in Codex**.
 
-It does not send source code to a central service, commit, push, open pull requests, or write files before the user explicitly approves a generated plan.
+- **Project Bootstrap** selects, validates, documents, and safely applies an initial project setup.
+- **Project Maintenance** assesses an existing implementation or configuration, then applies only explicitly approved, targeted improvements.
+
+Neither plugin sends source code to a central service, commits, pushes, opens pull requests, or writes files before the user explicitly approves a generated plan.
 
 ## What it provides
 
@@ -31,11 +34,13 @@ After publishing this repository to GitHub, add it as a Codex marketplace (repla
 codex plugin marketplace add <OWNER>/<REPOSITORY>
 ```
 
-Install **Project Bootstrap** from the marketplace in Codex Desktop, then start a local Codex task in the project you want to configure. The plugin requires Node.js 20 or later but has no npm or Python runtime dependency.
+Install **Project Bootstrap** for initial setup or **Project Maintenance** for an existing project from the marketplace in Codex Desktop. Both require Node.js 20 or later but have no npm or Python runtime dependency.
 
 > This is a local-MCP plugin. It is intended for Codex Desktop and local Codex tasks, not the public Plugins Directory.
 
 ## Guided planning
+
+For an existing project, start Plan mode and invoke `project-maintenance`. It inventories the local workspace and assesses implementation or configuration evidence without making changes. To address a finding, it first presents a focused, path-specific repair plan; file edits and verification commands each require separate approval.
 
 In Codex Desktop, start Plan mode with `/plan` (or `Shift`+`Tab` where available) and invoke `project-bootstrap`. The Skill asks one decision at a time using the host's selectable choices. It first identifies the product or service form, then the current delivery target: an interactive mockup, an MVP, or a production foundation. Team size, traffic, and operations questions are deferred until an MVP or production target needs them. Select an option or use **Other** to leave a comment; neither action authorizes any file change. For catalogue-backed candidates, the Catalog Explorer MCP UI displays the ranked candidate cards alongside their packaged source Markdown. Submitting an explorer candidate makes that ID the user’s choice for the current decision, retains unrelated earlier choices, then continues with validation or the next relevant candidates. It is an inline plugin view, not a host-native split tab. On hosts without structured Plan questions or MCP Apps UI, the same interview is presented as numbered choices with a free-text `Other` response and catalogue paths in the response.
 
