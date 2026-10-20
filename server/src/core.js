@@ -38,7 +38,7 @@ const IGNORED_DIRECTORIES = new Set([
 const TOOL_DEFINITIONS = [
   {
     name: "inspect_workspace",
-    description: "Read a local workspace inventory plus a redacted summary of applicable Codex and Project Bootstrap preferences without changing files. Raw configuration values are never returned. Set PROJECT_BOOTSTRAP_ALLOWED_ROOT to restrict readable workspace paths; otherwise the response reports that the host did not provide a boundary.",
+    description: "Read a local workspace inventory plus a redacted summary of applicable Codex and project-tool preferences without changing files. Raw configuration values are never returned. Set the plugin's trusted workspace-root environment variable to restrict readable paths; otherwise the response reports that the host did not provide a boundary.",
     inputSchema: {
       type: "object",
       properties: {
@@ -650,20 +650,20 @@ function isWithin(child, parent) {
 function resolveWorkspaceRoot(root) {
   if (typeof root !== "string" || !root.trim()) throw new Error("root is required.");
   const resolved = path.resolve(root);
-  const allowedRoot = process.env.PROJECT_BOOTSTRAP_ALLOWED_ROOT;
+  const allowedRoot = process.env.PROJECT_BOOTSTRAP_ALLOWED_ROOT || process.env.PROJECT_MAINTENANCE_ALLOWED_ROOT;
   if (allowedRoot && !isWithin(resolved, path.resolve(allowedRoot))) {
-    throw new Error("The workspace path is outside PROJECT_BOOTSTRAP_ALLOWED_ROOT.");
+    throw new Error("The workspace path is outside the configured project workspace boundary.");
   }
   return resolved;
 }
 
 function workspaceAccessScope() {
-  const allowedRoot = process.env.PROJECT_BOOTSTRAP_ALLOWED_ROOT?.trim();
+  const allowedRoot = (process.env.PROJECT_BOOTSTRAP_ALLOWED_ROOT || process.env.PROJECT_MAINTENANCE_ALLOWED_ROOT)?.trim();
   return allowedRoot
     ? { mode: "restricted", allowedRoot: path.resolve(allowedRoot) }
     : {
         mode: "host-boundary-not-configured",
-        message: "Set PROJECT_BOOTSTRAP_ALLOWED_ROOT to the trusted workspace root to restrict inspection paths."
+        message: "Set the plugin's trusted workspace-root environment variable to restrict inspection paths."
       };
 }
 

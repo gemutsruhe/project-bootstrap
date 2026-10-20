@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.join(root, "server", "src");
-const destination = path.join(root, "plugins", "project-bootstrap", "server", "dist");
+const destinations = ["project-bootstrap", "project-maintenance"]
+  .map((plugin) => path.join(root, "plugins", plugin, "server", "dist"));
 const checkOnly = process.argv.includes("--check");
 
 async function filesEqual(left, right) {
@@ -18,14 +19,20 @@ async function filesEqual(left, right) {
 if (checkOnly) {
   const expected = ["core.js", "guide-policies.js", "agent-evidence.js", "agents-guide.js", "platform-catalog.js", "platform-selection.js", "platform-recipes.js", "platform-plan.js", "index.js"];
   const stale = [];
-  for (const file of expected) {
-    if (!(await filesEqual(path.join(source, file), path.join(destination, file)))) stale.push(file);
+  for (const destination of destinations) {
+    for (const file of expected) {
+      if (!(await filesEqual(path.join(source, file), path.join(destination, file)))) {
+        stale.push(`${path.relative(root, destination)}:${file}`);
+      }
+    }
   }
   if (stale.length) throw new Error(`Packaged MCP runtime is stale: ${stale.join(", ")}. Run node scripts/build.mjs.`);
   process.stdout.write("Packaged MCP runtime is current.\n");
 } else {
-  await mkdir(destination, { recursive: true });
-  await cp(source, destination, { recursive: true });
-  await writeFile(path.join(destination, "package.json"), '{"type":"module"}\n');
-  process.stdout.write("Packaged local MCP runtime.\n");
+  for (const destination of destinations) {
+    await mkdir(destination, { recursive: true });
+    await cp(source, destination, { recursive: true });
+    await writeFile(path.join(destination, "package.json"), '{"type":"module"}\n');
+  }
+  process.stdout.write("Packaged local MCP runtimes.\n");
 }

@@ -5,6 +5,28 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CATALOG_EXPLORER_MIME_TYPE = "text/html;profile=mcp-app";
+const MAINTENANCE_TOOL_NAMES = new Set(["inspect_workspace", "assess_implementation"]);
+
+export function configuredServerName(argv = process.argv) {
+  const flagIndex = argv.indexOf("--server-name");
+  const requestedName = flagIndex === -1 ? undefined : argv[flagIndex + 1];
+  return requestedName === "project-maintenance" ? requestedName : "project-bootstrap";
+}
+
+export function configuredServerVersion(argv = process.argv) {
+  const flagIndex = argv.indexOf("--server-version");
+  const requestedVersion = flagIndex === -1 ? undefined : argv[flagIndex + 1];
+  return typeof requestedVersion === "string" && /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(requestedVersion)
+    ? requestedVersion
+    : PLUGIN_VERSION;
+}
+
+export function exposedToolDefinitions(serverName = configuredServerName()) {
+  const tools = getToolDefinitions();
+  return serverName === "project-maintenance"
+    ? tools.filter((tool) => MAINTENANCE_TOOL_NAMES.has(tool.name))
+    : tools;
+}
 
 function catalogExplorerFiles() {
   return [
@@ -84,17 +106,19 @@ function toolResult(data, isError = false, text = JSON.stringify(data, null, 2))
 
 export async function handleRequest(request) {
   const { id, method, params = {} } = request;
+  const serverName = configuredServerName();
   if (method === "initialize") {
     return response(id, {
       protocolVersion: params.protocolVersion || "2025-03-26",
       capabilities: { tools: {}, resources: {} },
-      serverInfo: { name: "project-bootstrap", version: PLUGIN_VERSION }
+      serverInfo: { name: serverName, version: configuredServerVersion() }
     });
   }
   if (method === "notifications/initialized") return undefined;
-  if (method === "tools/list") return response(id, { tools: getToolDefinitions() });
-  if (method === "resources/list") return response(id, { resources: getResourceDefinitions() });
+  if (method === "tools/list") return response(id, { tools: exposedToolDefinitions(serverName) });
+  if (method === "resources/list") return response(id, { resources: serverName === "project-maintenance" ? [] : getResourceDefinitions() });
   if (method === "resources/read") {
+    if (serverName === "project-maintenance") return rpcError(id, -32601, "Resources are not available in Project Maintenance.");
     try {
       return response(id, await readResource(params.uri));
     } catch (error) {
@@ -103,6 +127,9 @@ export async function handleRequest(request) {
   }
   if (method === "tools/call") {
     try {
+      if (serverName === "project-maintenance" && !MAINTENANCE_TOOL_NAMES.has(params.name)) {
+        return rpcError(id, -32601, `Tool not available in Project Maintenance: ${params.name}`);
+      }
       const data = await invokeTool(params.name, params.arguments || {});
       const text = params.name === "render_catalog_explorer"
         ? `Catalog Explorer is ready with ${data.entries.length} read-only candidate record(s). Select a candidate and optionally submit a comment to chat.`
