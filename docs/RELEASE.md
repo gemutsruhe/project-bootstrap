@@ -1,5 +1,10 @@
 # Release process
 
+## Unreleased project-maintenance 0.3.0
+
+- Add the one-command full-audit route: `policyAudit.scope: "auto"` discovers conventionally named policy and instruction documents, reports its selection, and preserves paged, complete evidence coverage.
+- Teach the Project Maintenance Skill to handle `전수감사 시작` / "start a full audit" by discovering documents and retrieving every page without self-authorizing commands.
+
 ## Unreleased project-maintenance 0.2.0
 
 - Add a paged, read-only full-evidence policy audit to `assess_implementation`.

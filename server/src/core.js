@@ -275,7 +275,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "assess_implementation",
-    description: "Read a local implementation against caller-supplied acceptance criteria. Optionally index every policy item from specified local policy documents with pagination. Report file evidence, declared versus caller-reported versus agent-executed checks, documentation drift, and contextual review prompts without claiming that file presence proves behavior. Never runs commands or changes files.",
+    description: "Read a local implementation against caller-supplied acceptance criteria. Optionally index every policy item from explicitly selected or automatically discovered local policy documents with pagination. Report file evidence, declared versus caller-reported versus agent-executed checks, documentation drift, and contextual review prompts without claiming that file presence proves behavior. Never runs commands or changes files.",
     inputSchema: {
       type: "object",
       properties: {
@@ -326,17 +326,21 @@ const TOOL_DEFINITIONS = [
         },
         policyAudit: {
           type: "object",
-          description: "Optional, read-only full-evidence policy audit. Entry documents and directly referenced local policy documents are indexed without returning unredacted configuration values.",
+          description: "Optional, read-only full-evidence policy audit. Use entryDocuments for an explicit scope or scope: auto for conventionally named workspace policy documents. Directly referenced local policy documents are indexed without returning unredacted configuration values.",
           properties: {
             entryDocuments: {
               type: "array", minItems: 1, maxItems: 20,
               items: { type: "string", description: "Workspace-relative Markdown or text policy document." }
             },
+            scope: { type: "string", enum: ["auto"], description: "Automatically select conventionally named workspace policy and instruction documents. Cannot be combined with entryDocuments." },
             pageSize: { type: "integer", minimum: 1, maximum: 100, default: 50 },
             pageToken: { type: "string", description: "Opaque token returned by a preceding policy audit page." },
             includeConfiguration: { type: "string", enum: ["safe-summary"], default: "safe-summary", description: "Return only configuration paths, keys, scope, and safe state classifications." }
           },
-          required: ["entryDocuments"],
+          anyOf: [
+            { required: ["entryDocuments"] },
+            { required: ["scope"] }
+          ],
           additionalProperties: false
         }
       },

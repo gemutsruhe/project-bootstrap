@@ -142,6 +142,56 @@ test("full policy audit follows local references and returns complete, unique pa
   assert.ok(seen.some((item) => item.classification === "exception"));
 });
 
+test("automatic policy audit discovers convention-named documents and preserves paged coverage", async (t) => {
+  const root = await workspace(t, {
+    "README.md": "This repository provides context.\n",
+    "AGENTS.md": "# Agent rules\nThe agent must inspect direct evidence. [Details](docs/rules.md)\n",
+    "docs/SECURITY.md": "# Security\nDo not expose secrets.\n",
+    "docs/rules.md": "# Review rules\nCommands require approval.\n",
+    "docs/background.md": "This background document is not an automatic entry document.\n"
+  });
+  const first = await assessImplementation({ root, policyAudit: { scope: "auto", pageSize: 1 } });
+  assert.equal(first.policyAudit.status, "ready");
+  assert.equal(first.policyAudit.entryDocumentSource, "auto");
+  assert.equal(first.policyAudit.documentDiscovery.mode, "auto");
+  assert.ok(first.policyAudit.documentDiscovery.selectedEntryDocuments.includes("AGENTS.md"));
+  assert.ok(first.policyAudit.documentDiscovery.selectedEntryDocuments.includes("docs/SECURITY.md"));
+  assert.ok(first.policyAudit.documents.some((document) => document.path === "docs/rules.md"));
+  assert.ok(first.policyAudit.nextPageToken);
+
+  const seen = [...first.policyAudit.items];
+  let pageToken = first.policyAudit.nextPageToken;
+  while (pageToken) {
+    const page = await assessImplementation({ root, policyAudit: { scope: "auto", pageSize: 1, pageToken } });
+    assert.equal(page.policyAudit.status, "ready");
+    seen.push(...page.policyAudit.items);
+    pageToken = page.policyAudit.nextPageToken;
+  }
+  assert.equal(seen.length, first.policyAudit.totalItems);
+  assert.equal(new Set(seen.map((item) => item.id)).size, seen.length);
+});
+
+test("automatic policy audit blocks an empty or changed automatic scope", async (t) => {
+  const root = await workspace(t, { "notes.md": "No named policy documents are present.\n" });
+  const empty = await assessImplementation({ root, policyAudit: { scope: "auto" } });
+  assert.equal(empty.status, "blocked");
+  assert.equal(empty.policyAudit.reason, "policy-document-auto-discovery-empty");
+
+  await fs.writeFile(path.join(root, "AGENTS.md"), "The agent must inspect evidence.\nMore policy text.\n");
+  const first = await assessImplementation({ root, policyAudit: { scope: "auto", pageSize: 1 } });
+  assert.ok(first.policyAudit.nextPageToken);
+  await fs.mkdir(path.join(root, "docs"));
+  await fs.writeFile(path.join(root, "docs", "SECURITY.md"), "Do not expose secrets.\n");
+  const stale = await assessImplementation({ root, policyAudit: { scope: "auto", pageSize: 1, pageToken: first.policyAudit.nextPageToken } });
+  assert.equal(stale.status, "blocked");
+  assert.equal(stale.policyAudit.reason, "policy-audit-page-stale");
+
+  await assert.rejects(
+    () => assessImplementation({ root, policyAudit: { scope: "auto", entryDocuments: ["AGENTS.md"] } }),
+    /entryDocuments.*scope/
+  );
+});
+
 test("full policy audit blocks unsafe, cyclic, and stale document collections", async (t) => {
   const root = await workspace(t, {
     "AGENTS.md": "[Rules](docs/rules.md)\n",

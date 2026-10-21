@@ -134,10 +134,14 @@ test("maintenance skill requires complete, evidence-backed policy audits without
     "utf8"
   );
   assert.match(maintenance, /policyAudit/);
+  assert.match(maintenance, /전수감사 시작/);
+  assert.match(maintenance, /scope: "auto"/);
+  assert.match(maintenance, /automatically retrieve every page/);
   assert.match(maintenance, /Retrieve every page before reaching a conclusion/);
   assert.match(maintenance, /executedChecks/);
   assert.match(maintenance, /After explicit approval/);
   assert.match(review, /Full evidence policy audit/);
+  assert.match(review, /scope: "auto"/);
   assert.match(review, /nextPageToken/);
   assert.match(review, /never echo configuration values/);
   assert.match(review, /Do not substitute an overall score/);

@@ -6,9 +6,30 @@ const MAX_DOCUMENT_BYTES = 128_000;
 const MAX_TOTAL_BYTES = 4_000_000;
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
+const MAX_AUTO_DISCOVERY_FILES = 2_000;
+const MAX_AUTO_DISCOVERY_DEPTH = 6;
 const TOKEN_VERSION = 1;
 const POLICY_DOCUMENT_EXTENSION = /\.(?:md|mdx|txt)$/i;
 const EXTERNAL_REFERENCE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i;
+const AUTO_DISCOVERY_IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage", ".next", ".cache", "vendor"]);
+const AUTO_POLICY_DOCUMENT_SCORES = new Map([
+  ["agents.md", 100],
+  ["security.md", 95],
+  ["contributing.md", 90],
+  ["code_of_conduct.md", 85],
+  ["policy.md", 90],
+  ["policies.md", 90],
+  ["rules.md", 90],
+  ["standards.md", 90],
+  ["guidelines.md", 85],
+  ["instructions.md", 85],
+  ["release.md", 65],
+  ["operations.md", 65],
+  ["runbook.md", 65],
+  ["deployment.md", 60],
+  ["architecture.md", 50]
+]);
+const AUTO_POLICY_DOCUMENT_KEYWORDS = /(?:^|[-_.])(?:policy|policies|rule|rules|standard|standards|guideline|guidelines|instruction|instructions|security|contributing|governance|compliance|release|operation|operations|runbook|deployment)(?:[-_.]|$)/i;
 const POLICY_LANGUAGE = /\b(?:must|should|require(?:d)?|prohibit(?:ed)?|never|always|do not|don't|only|avoid|ensure|before|after|mandatory)\b|해야(?:\s*한다|만\s*한다|\s*합니다)?|하십시오|금지|반드시|절대|하지\s*마|하지\s*않(?:는다|습니다)|요구|허용|검증|승인|실행/i;
 const EXCEPTION_LANGUAGE = /\b(?:except|unless|only if|otherwise)\b|제외|예외|단,|경우에만|하지\s*않아도/i;
 
@@ -44,12 +65,23 @@ function normalizePolicyAudit(options = {}) {
   if (!options || typeof options !== "object" || Array.isArray(options)) {
     throw new Error("policyAudit must be an object.");
   }
-  if (!Array.isArray(options.entryDocuments) || options.entryDocuments.length < 1 || options.entryDocuments.length > 20) {
-    throw new Error("policyAudit.entryDocuments must contain between 1 and 20 policy documents.");
+  const autoScope = options.scope === "auto";
+  if (options.scope !== undefined && !autoScope) {
+    throw new Error('policyAudit.scope must be "auto" when provided.');
   }
-  const entryDocuments = [...new Set(options.entryDocuments.map((entry) => validateRelativePath(entry)))].sort();
-  if (entryDocuments.some((entry) => !POLICY_DOCUMENT_EXTENSION.test(entry))) {
-    throw new Error("Policy audit entry documents must be Markdown or text files.");
+  const hasEntryDocuments = options.entryDocuments !== undefined;
+  if (hasEntryDocuments === autoScope) {
+    throw new Error('Provide policyAudit.entryDocuments or policyAudit.scope: "auto", but not both.');
+  }
+  let entryDocuments;
+  if (hasEntryDocuments) {
+    if (!Array.isArray(options.entryDocuments) || options.entryDocuments.length < 1 || options.entryDocuments.length > 20) {
+      throw new Error("policyAudit.entryDocuments must contain between 1 and 20 policy documents.");
+    }
+    entryDocuments = [...new Set(options.entryDocuments.map((entry) => validateRelativePath(entry)))].sort();
+    if (entryDocuments.some((entry) => !POLICY_DOCUMENT_EXTENSION.test(entry))) {
+      throw new Error("Policy audit entry documents must be Markdown or text files.");
+    }
   }
   const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
@@ -63,10 +95,67 @@ function normalizePolicyAudit(options = {}) {
   }
   return {
     entryDocuments,
+    scope: autoScope ? "auto" : "explicit",
     pageSize,
     pageToken: options.pageToken,
     includeConfiguration: options.includeConfiguration ?? "safe-summary"
   };
+}
+
+function autoPolicyDocumentScore(documentPath) {
+  const parts = documentPath.toLowerCase().split("/");
+  const fileName = parts.at(-1);
+  const namedScore = AUTO_POLICY_DOCUMENT_SCORES.get(fileName);
+  if (namedScore) return namedScore + (parts[0] === "docs" ? 5 : 0);
+  if (fileName === "readme.md" && parts.length === 1) return 55;
+  const stem = fileName.replace(POLICY_DOCUMENT_EXTENSION, "");
+  if (!AUTO_POLICY_DOCUMENT_KEYWORDS.test(stem)) return 0;
+  return 70 + (parts[0] === "docs" ? 5 : 0);
+}
+
+async function discoverPolicyEntryDocuments(root) {
+  const candidates = [];
+  let inspectedEntries = 0;
+
+  async function visit(directory, relativeDirectory, depth) {
+    if (depth > MAX_AUTO_DISCOVERY_DEPTH) return { status: "ready" };
+    let entries;
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return policyError("policy-document-auto-discovery-unreadable", { path: relativeDirectory || "." });
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      inspectedEntries += 1;
+      if (inspectedEntries > MAX_AUTO_DISCOVERY_FILES) {
+        return policyError("policy-document-auto-discovery-limit", { maxEntries: MAX_AUTO_DISCOVERY_FILES });
+      }
+      const relative = toPosix(path.join(relativeDirectory, entry.name));
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (AUTO_DISCOVERY_IGNORED_DIRECTORIES.has(entry.name.toLowerCase())) continue;
+        const result = await visit(absolute, relative, depth + 1);
+        if (result.status === "blocked") return result;
+        continue;
+      }
+      if (!entry.isFile() || !POLICY_DOCUMENT_EXTENSION.test(entry.name)) continue;
+      const score = autoPolicyDocumentScore(relative);
+      if (score) candidates.push({ path: relative, score });
+    }
+    return { status: "ready" };
+  }
+
+  const result = await visit(root, "", 0);
+  if (result.status === "blocked") return result;
+  candidates.sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
+  if (candidates.length === 0) {
+    return policyError("policy-document-auto-discovery-empty", { message: "No conventionally named policy or instruction documents were found." });
+  }
+  if (candidates.length > 20) {
+    return policyError("policy-document-auto-discovery-too-many", { candidateCount: candidates.length, maxEntryDocuments: 20 });
+  }
+  return { status: "ready", entryDocuments: candidates.map((candidate) => candidate.path) };
 }
 
 function decodePageToken(token) {
@@ -260,9 +349,20 @@ async function collectPolicyDocuments(root, entryDocuments) {
 }
 
 export async function createPolicyAudit(root, options, configuration) {
-  const audit = normalizePolicyAudit(options);
+  const normalized = normalizePolicyAudit(options);
+  let entryDocuments = normalized.entryDocuments;
+  let documentDiscovery;
+  if (normalized.scope === "auto") {
+    const discovered = await discoverPolicyEntryDocuments(root);
+    if (discovered.status === "blocked") return { ...discovered, scope: "auto" };
+    entryDocuments = discovered.entryDocuments;
+    documentDiscovery = { mode: "auto", selectedEntryDocuments: entryDocuments };
+  }
+  const audit = { ...normalized, entryDocuments };
   const collected = await collectPolicyDocuments(root, audit.entryDocuments);
-  if (collected.status === "blocked") return { ...collected, entryDocuments: audit.entryDocuments };
+  if (collected.status === "blocked") {
+    return { ...collected, entryDocuments: audit.entryDocuments, ...(documentDiscovery ? { documentDiscovery } : {}) };
+  }
 
   const snapshot = sha256(collected.documents.map((document) => `${document.path}\0${document.digest}`).join("\n"));
   let offset = 0;
@@ -281,6 +381,8 @@ export async function createPolicyAudit(root, options, configuration) {
   return {
     status: "ready",
     entryDocuments: audit.entryDocuments,
+    entryDocumentSource: audit.scope,
+    ...(documentDiscovery ? { documentDiscovery } : {}),
     documents: collected.documents.map(({ path: documentPath, bytes, digest }) => ({ path: documentPath, status: "collected", bytes, digest })),
     totalItems: allItems.length,
     page: { offset, pageSize: audit.pageSize, returnedItems: items.length, totalItems: allItems.length },

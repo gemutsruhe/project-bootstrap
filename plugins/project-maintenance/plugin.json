@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "project-maintenance",
-  "version": "0.2.0",
-  "description": "Assess existing local projects with evidence-backed, paged policy audits and apply approved, targeted improvements without bootstrapping a new runtime.",
+  "version": "0.3.0",
+  "description": "Assess existing local projects with one-command, evidence-backed policy audits and apply approved, targeted improvements without bootstrapping a new runtime.",
   "keywords": [
     "assessment",
     "maintenance",
@@ -16,8 +16,8 @@
       "onboardingSkill": "./skills/project-maintenance-setup/SKILL.md",
       "interface": {
         "displayName": "Project Maintenance",
-        "shortDescription": "Assess existing projects and apply approved improvements.",
-        "longDescription": "Inspect an existing local project, assess code and configuration against explicit requirements, then propose focused repairs or refinements. It changes only the user-approved paths and never scaffolds a new runtime.",
+        "shortDescription": "Assess existing projects with one-command evidence audits.",
+        "longDescription": "Inspect an existing local project, start a full evidence audit from conventionally named policy documents when requested, assess code and configuration against explicit requirements, then propose focused repairs or refinements. It changes only the user-approved paths and never scaffolds a new runtime.",
         "developerName": "Project Maintenance Contributors",
         "category": "Developer tools",
         "capabilities": [
@@ -26,6 +26,7 @@
         ],
         "defaultPrompt": [
           "Use Project Maintenance to inspect this existing local workspace, assess its implementation and configuration, and report prioritized improvements without changing files.",
+          "Start a full evidence audit for this project. Discover the policy documents automatically, retrieve every audit page, and do not run commands without my separate approval.",
           "Use Project Maintenance to propose focused fixes for approved findings, but do not edit files or run commands until I approve the exact plan."
         ]
       }
