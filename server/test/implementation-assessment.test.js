@@ -142,6 +142,20 @@ test("full policy audit follows local references and returns complete, unique pa
   assert.ok(seen.some((item) => item.classification === "exception"));
 });
 
+test("full policy audit resolves bare inline-code document references relative to their containing document", async (t) => {
+  const root = await workspace(t, {
+    "docs/harness/README.md": "Use `HANDOFF_TEMPLATE.md` for every handoff.\n",
+    "docs/harness/HANDOFF_TEMPLATE.md": "Do not expose secrets in handoff notes.\n"
+  });
+  const result = await assessImplementation({ root, policyAudit: { entryDocuments: ["docs/harness/README.md"] } });
+  assert.equal(result.policyAudit.status, "ready");
+  assert.deepEqual(
+    result.policyAudit.documents.map((document) => document.path),
+    ["docs/harness/HANDOFF_TEMPLATE.md", "docs/harness/README.md"]
+  );
+  assert.ok(result.policyAudit.items.some((item) => item.path === "docs/harness/HANDOFF_TEMPLATE.md"));
+});
+
 test("automatic policy audit discovers convention-named documents and preserves paged coverage", async (t) => {
   const root = await workspace(t, {
     "README.md": "This repository provides context.\n",

@@ -289,12 +289,16 @@ function splitPolicyItems(document) {
 
 function extractPolicyReferences(content, sourcePath) {
   const rawTargets = [];
-  for (const match of content.matchAll(/!?\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/g)) rawTargets.push({ target: match[1], relativeToSource: true });
-  for (const match of content.matchAll(/`([^`\r\n]+)`/g)) rawTargets.push({ target: match[1], relativeToSource: false });
+  for (const match of content.matchAll(/!?\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/g)) rawTargets.push({ target: match[1], kind: "markdown-link" });
+  for (const match of content.matchAll(/`([^`\r\n]+)`/g)) rawTargets.push({ target: match[1], kind: "code-path" });
   const sourceDirectory = path.posix.dirname(sourcePath);
-  return [...new Set(rawTargets.flatMap(({ target: raw, relativeToSource }) => {
+  return [...new Set(rawTargets.flatMap(({ target: raw, kind }) => {
     const target = raw.split(/[?#]/, 1)[0].trim();
     if (!target || EXTERNAL_REFERENCE.test(target) || !POLICY_DOCUMENT_EXTENSION.test(target) || target.includes("\\")) return [];
+    // Markdown links are document-relative. Inline code has historically supported
+    // workspace-relative paths such as `docs/rules.md`; a bare file name (or an
+    // explicit ./ or ../ path) is unambiguously relative to the containing document.
+    const relativeToSource = kind === "markdown-link" || !target.includes("/") || target.startsWith("./") || target.startsWith("../");
     const resolved = path.posix.normalize(relativeToSource ? path.posix.join(sourceDirectory === "." ? "" : sourceDirectory, target) : target);
     return [resolved];
   }))].sort();

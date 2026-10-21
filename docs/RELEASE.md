@@ -1,5 +1,9 @@
 # Release process
 
+## Unreleased project-maintenance 0.3.1
+
+- Resolve bare inline-code policy document references relative to their containing document, while preserving existing workspace-relative paths such as `docs/rules.md`.
+
 ## Unreleased project-maintenance 0.3.0
 
 - Add the one-command full-audit route: `policyAudit.scope: "auto"` discovers conventionally named policy and instruction documents, reports its selection, and preserves paged, complete evidence coverage.
