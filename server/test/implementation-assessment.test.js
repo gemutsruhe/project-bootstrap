@@ -99,3 +99,100 @@ test("assessment rejects traversal and duplicate requirement IDs", async (t) => 
     { id: "same", description: "first" }, { id: "same", description: "second" }
   ] }), /unique ID/);
 });
+
+test("full policy audit follows local references and returns complete, unique pages", async (t) => {
+  const root = await workspace(t, {
+    "package.json": JSON.stringify({ scripts: { test: "node --test" } }),
+    "AGENTS.md": [
+      "# Evidence policy",
+      "The agent must inspect direct evidence. [Details](docs/rules.md)",
+      "- Do not expose secrets."
+    ].join("\n"),
+    "docs/rules.md": [
+      "## Command exception",
+      "Except for tests, commands require approval.",
+      "`docs/more.md`"
+    ].join("\n"),
+    "docs/more.md": "# Context\nThis describes the policy background.\n",
+    ".codex/config.toml": 'secret_value = "must-not-be-returned"\n[project_bootstrap]\nlocale = "ko"\n'
+  });
+  const first = await assessImplementation({
+    root,
+    policyAudit: { entryDocuments: ["AGENTS.md"], pageSize: 2, includeConfiguration: "safe-summary" }
+  });
+  assert.equal(first.policyAudit.status, "ready");
+  assert.equal(first.policyAudit.documents.length, 3);
+  assert.equal(first.policyAudit.page.returnedItems, 2);
+  assert.ok(first.policyAudit.nextPageToken);
+  assert.match(first.policyAudit.items[0].id, /^AGENTS\.md#L/);
+  assert.ok(first.policyAudit.items.some((item) => item.classification === "policy"));
+  assert.equal(JSON.stringify(first.policyAudit.configuration).includes("must-not-be-returned"), false);
+  assert.deepEqual(first.policyAudit.configuration.workspace.codexConfigs, [".codex/config.toml"]);
+
+  const seen = [...first.policyAudit.items];
+  let pageToken = first.policyAudit.nextPageToken;
+  while (pageToken) {
+    const page = await assessImplementation({ root, policyAudit: { entryDocuments: ["AGENTS.md"], pageSize: 2, pageToken } });
+    assert.equal(page.policyAudit.status, "ready");
+    seen.push(...page.policyAudit.items);
+    pageToken = page.policyAudit.nextPageToken;
+  }
+  assert.equal(seen.length, first.policyAudit.totalItems);
+  assert.equal(new Set(seen.map((item) => item.id)).size, seen.length);
+  assert.ok(seen.some((item) => item.classification === "exception"));
+});
+
+test("full policy audit blocks unsafe, cyclic, and stale document collections", async (t) => {
+  const root = await workspace(t, {
+    "AGENTS.md": "[Rules](docs/rules.md)\n",
+    "docs/rules.md": "[Root](../AGENTS.md)\n",
+    "outside.md": "outside\n"
+  });
+  const cyclic = await assessImplementation({ root, policyAudit: { entryDocuments: ["AGENTS.md"] } });
+  assert.equal(cyclic.status, "blocked");
+  assert.equal(cyclic.policyAudit.reason, "policy-document-cycle");
+
+  await fs.writeFile(path.join(root, "AGENTS.md"), "[Outside](../outside.md)\n");
+  const outside = await assessImplementation({ root, policyAudit: { entryDocuments: ["AGENTS.md"] } });
+  assert.equal(outside.status, "blocked");
+  assert.equal(outside.policyAudit.reason, "policy-document-outside-workspace");
+
+  await fs.writeFile(path.join(root, "AGENTS.md"), "The agent must inspect evidence.\nMore policy text.\n");
+  const first = await assessImplementation({ root, policyAudit: { entryDocuments: ["AGENTS.md"], pageSize: 1 } });
+  assert.ok(first.policyAudit.nextPageToken);
+  await fs.writeFile(path.join(root, "AGENTS.md"), "The agent must inspect changed evidence.\nMore policy text.\n");
+  const stale = await assessImplementation({ root, policyAudit: { entryDocuments: ["AGENTS.md"], pageSize: 1, pageToken: first.policyAudit.nextPageToken } });
+  assert.equal(stale.status, "blocked");
+  assert.equal(stale.policyAudit.reason, "policy-audit-page-stale");
+});
+
+test("full policy audit catches cycles that span sibling document references", async (t) => {
+  const root = await workspace(t, {
+    "AGENTS.md": "[Left](docs/left.md)\n[Right](docs/right.md)\n",
+    "docs/left.md": "[Shared](shared.md)\n",
+    "docs/shared.md": "[Right](right.md)\n",
+    "docs/right.md": "[Left](left.md)\n"
+  });
+  const result = await assessImplementation({ root, policyAudit: { entryDocuments: ["AGENTS.md"] } });
+  assert.equal(result.status, "blocked");
+  assert.equal(result.policyAudit.reason, "policy-document-cycle");
+});
+
+test("agent-executed checks retain caller evidence but take precedence for the effective verdict", async (t) => {
+  const root = await workspace(t, {
+    "package.json": JSON.stringify({ scripts: { test: "node --test" } }),
+    "src/index.ts": "export const ready = true;\n"
+  });
+  const result = await assessImplementation({
+    root,
+    requirements: [{ id: "startup", description: "App starts", evidencePaths: ["src/index.ts"], checkCommands: ["npm run test"] }],
+    reportedChecks: [{ command: "npm run test", status: "passed", source: "caller CI" }],
+    executedChecks: [{ command: "npm run test", status: "failed", source: "authorized local transcript" }]
+  });
+  const check = result.criteria[0].checks[0];
+  assert.equal(check.status, "failed");
+  assert.equal(check.provenance, "agent-executed");
+  assert.equal(check.evidence.length, 2);
+  assert.deepEqual(check.evidence.map((item) => item.provenance), ["caller-reported", "agent-executed"]);
+  assert.equal(result.criteria[0].status, "reported-check-failed");
+});

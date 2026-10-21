@@ -1,5 +1,11 @@
 # Release process
 
+## Unreleased project-maintenance 0.2.0
+
+- Add a paged, read-only full-evidence policy audit to `assess_implementation`.
+- Preserve the distinction between declared, caller-reported, and authorized agent-executed checks.
+- Keep configuration audit evidence limited to safe paths, keys, scope, and state classifications.
+
 ## Unreleased 0.6.1
 
 - Add a first-class Expo/React Native root-scaffold plan with explicit Node and network prerequisites.
@@ -11,7 +17,7 @@
 - Keep large AGENTS.md files within a 16 KiB root-guide budget by planning a complete evidence index; preserve AGENTS override and existing build-system conflicts as merge previews.
 - Add fixture coverage for 25 runtime/domain shapes, mixed repositories, command safety and 336 guide-policy/locale combinations.
 
-1. Update the version in `plugins/project-bootstrap/plugin.json` and add release notes.
+1. Update the version in every changed plugin manifest and MCP server declaration, then add release notes.
 2. Run `node scripts/build.mjs` to refresh the packaged MCP runtime.
 3. Run `node scripts/validate-catalog.mjs` and `node --test server/test/*.test.js`.
 4. Confirm the marketplace entry resolves the plugin from a clean checkout.

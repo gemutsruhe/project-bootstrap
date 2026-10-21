@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "project-maintenance",
-  "version": "0.1.0",
-  "description": "Assess existing local projects and apply approved, targeted improvements without bootstrapping a new runtime.",
+  "version": "0.2.0",
+  "description": "Assess existing local projects with evidence-backed, paged policy audits and apply approved, targeted improvements without bootstrapping a new runtime.",
   "keywords": [
     "assessment",
     "maintenance",

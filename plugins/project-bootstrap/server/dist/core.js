@@ -8,6 +8,7 @@ import { createAgentsGuideBlueprint } from "./agents-guide.js";
 import { listPlatformChoices } from "./platform-catalog.js";
 import { validatePlatformSelection } from "./platform-selection.js";
 import { createPlatformPlan } from "./platform-plan.js";
+import { createPolicyAudit } from "./policy-audit.js";
 
 export { listGuidePolicies } from "./guide-policies.js";
 export { createAgentGuideEvidence } from "./agent-evidence.js";
@@ -274,7 +275,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "assess_implementation",
-    description: "Read a local implementation against caller-supplied acceptance criteria. Report file evidence, declared versus reported checks, documentation drift, and contextual review prompts without claiming that file presence proves behavior. Never runs commands or changes files.",
+    description: "Read a local implementation against caller-supplied acceptance criteria. Optionally index every policy item from specified local policy documents with pagination. Report file evidence, declared versus caller-reported versus agent-executed checks, documentation drift, and contextual review prompts without claiming that file presence proves behavior. Never runs commands or changes files.",
     inputSchema: {
       type: "object",
       properties: {
@@ -307,6 +308,36 @@ const TOOL_DEFINITIONS = [
             required: ["command", "status", "source"],
             additionalProperties: false
           }
+        },
+        executedChecks: {
+          type: "array", maxItems: 40,
+          description: "Checks actually run by an authorized agent. This tool records supplied evidence but never runs commands itself.",
+          items: {
+            type: "object",
+            properties: {
+              command: { type: "string" },
+              directory: { type: "string", description: "Workspace-relative execution directory; defaults to the workspace root." },
+              status: { type: "string", enum: ["passed", "failed", "unavailable"] },
+              source: { type: "string", description: "Authorized execution log or transcript reference." }
+            },
+            required: ["command", "status", "source"],
+            additionalProperties: false
+          }
+        },
+        policyAudit: {
+          type: "object",
+          description: "Optional, read-only full-evidence policy audit. Entry documents and directly referenced local policy documents are indexed without returning unredacted configuration values.",
+          properties: {
+            entryDocuments: {
+              type: "array", minItems: 1, maxItems: 20,
+              items: { type: "string", description: "Workspace-relative Markdown or text policy document." }
+            },
+            pageSize: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+            pageToken: { type: "string", description: "Opaque token returned by a preceding policy audit page." },
+            includeConfiguration: { type: "string", enum: ["safe-summary"], default: "safe-summary", description: "Return only configuration paths, keys, scope, and safe state classifications." }
+          },
+          required: ["entryDocuments"],
+          additionalProperties: false
         }
       },
       required: ["root"],
@@ -1693,36 +1724,87 @@ function checkKey(directory, command) {
   return `${directory}\0${command}`;
 }
 
-export async function assessImplementation({ root, requirements = [], reportedChecks = [] } = {}) {
-  if (!Array.isArray(requirements) || requirements.length > 30 || !Array.isArray(reportedChecks) || reportedChecks.length > 40) {
+function safeConfigurationSummary(inventory) {
+  const codexRecord = (record) => ({
+    source: record.source,
+    path: record.path,
+    status: record.unreadable ? "unreadable" : record.exists ? "present" : "missing",
+    knownProjectBootstrapKeys: Object.keys(record.projectBootstrap || {}).sort()
+  });
+  return {
+    workspace: {
+      rootAgents: inventory.configuration.rootAgents,
+      nestedAgents: inventory.configuration.nestedAgents,
+      codexConfigs: inventory.configuration.codexConfigs,
+      pullRequestTemplates: inventory.configuration.pullRequestTemplates,
+      codeowners: inventory.configuration.codeowners,
+      contributorGuides: inventory.configuration.contributorGuides
+    },
+    codex: {
+      records: [codexRecord(inventory.codexSettings.project), codexRecord(inventory.codexSettings.user)],
+      precedence: inventory.codexSettings.precedence,
+      interpretation: "Only file presence, scope, readable state, and known non-secret preference keys are returned; raw configuration values and environment variables are excluded."
+    }
+  };
+}
+
+function normalizeCheckEvidence(items, label) {
+  if (!Array.isArray(items) || items.length > 40) throw new Error("Assessment input exceeds the supported bounds.");
+  const records = new Map();
+  for (const item of items) {
+    if (!item || typeof item.command !== "string" || !item.command.trim() || !["passed", "failed", "unavailable"].includes(item.status) || typeof item.source !== "string" || !item.source.trim()) {
+      throw new Error(`Each ${label} check needs a command, status, and non-empty source.`);
+    }
+    const directory = reviewedDirectory(item.directory ?? ".");
+    const key = checkKey(directory, item.command);
+    if (records.has(key)) throw new Error(`Duplicate ${label} check command and directory.`);
+    records.set(key, { directory, command: item.command, status: item.status, source: item.source });
+  }
+  return records;
+}
+
+function checkAssessment(directory, command, reported, executed) {
+  const key = checkKey(directory, command);
+  const callerReported = reported.get(key);
+  const agentExecuted = executed.get(key);
+  const evidence = [
+    ...(callerReported ? [{ ...callerReported, provenance: "caller-reported" }] : []),
+    ...(agentExecuted ? [{ ...agentExecuted, provenance: "agent-executed" }] : [])
+  ];
+  const effective = agentExecuted || callerReported;
+  return {
+    status: effective?.status ?? "not-run",
+    source: effective?.source ?? null,
+    provenance: agentExecuted ? "agent-executed" : callerReported ? "caller-reported" : "inventory-only",
+    evidence
+  };
+}
+
+function unrecognizedChecks(records, declaredCommands) {
+  return [...records.entries()]
+    .filter(([key]) => !declaredCommands.has(key))
+    .map(([, value]) => ({ directory: value.directory, command: value.command }));
+}
+
+export async function assessImplementation({ root, requirements = [], reportedChecks = [], executedChecks = [], policyAudit } = {}) {
+  if (!Array.isArray(requirements) || requirements.length > 30) {
     throw new Error("Assessment input exceeds the supported bounds.");
   }
   const inventory = await inspectWorkspace({ root, maxDepth: 12, maxFiles: 2000 });
   if (inventory.truncated || inventory.agentGuideEvidence.verification.collection.complete === false) {
     return { status: "blocked", reason: "Workspace inventory or metadata collection is incomplete; no coverage conclusion is possible." };
   }
+  const audit = policyAudit ? await createPolicyAudit(inventory.root, policyAudit, safeConfigurationSummary(inventory)) : undefined;
+  if (audit?.status === "blocked") return { status: "blocked", reason: audit.reason, policyAudit: audit };
   const files = new Set(inventory.files);
   const ids = new Set();
-  const reported = new Map();
-  for (const item of reportedChecks) {
-    if (!item || typeof item.command !== "string" || !item.command.trim() || !["passed", "failed", "unavailable"].includes(item.status) || typeof item.source !== "string" || !item.source.trim()) {
-      throw new Error("Each reported check needs a command, status, and non-empty source.");
-    }
-    const directory = reviewedDirectory(item.directory ?? ".");
-    const key = checkKey(directory, item.command);
-    if (reported.has(key)) throw new Error("Duplicate reported check command and directory.");
-    reported.set(key, { directory, command: item.command, status: item.status, source: item.source });
-  }
+  const reported = normalizeCheckEvidence(reportedChecks, "reported");
+  const executed = normalizeCheckEvidence(executedChecks, "executed");
   const declared = inventory.agentGuideEvidence.verification.commands
     .filter((item) => item.suitableForVerification)
     .map((item) => ({ command: item.command, directory: item.directory, workingDirectory: item.workingDirectory, kind: item.kind }));
   const declaredCommands = new Set(declared.map((item) => checkKey(item.directory, item.command)));
-  const checks = declared.map((item) => ({
-    ...item,
-    status: reported.get(checkKey(item.directory, item.command))?.status ?? "not-run",
-    source: reported.get(checkKey(item.directory, item.command))?.source ?? null,
-    provenance: reported.has(checkKey(item.directory, item.command)) ? "caller-reported" : "inventory-only"
-  }));
+  const checks = declared.map((item) => ({ ...item, ...checkAssessment(item.directory, item.command, reported, executed) }));
   const criteria = requirements.map((item) => {
     if (!item || typeof item.id !== "string" || !item.id.trim() || ids.has(item.id) || typeof item.description !== "string" || !item.description.trim()) {
       throw new Error("Each requirement needs a unique ID and description.");
@@ -1738,9 +1820,8 @@ export async function assessImplementation({ root, requirements = [], reportedCh
     const criterionChecks = checkCommands.map((command) => ({
       command,
       directory: checkDirectory,
-      status: reported.get(checkKey(checkDirectory, command))?.status ?? "not-run",
       declared: declaredCommands.has(checkKey(checkDirectory, command)),
-      provenance: reported.has(checkKey(checkDirectory, command)) ? "caller-reported" : "inventory-only"
+      ...checkAssessment(checkDirectory, command, reported, executed)
     }));
     return {
       id: item.id,
@@ -1785,9 +1866,11 @@ export async function assessImplementation({ root, requirements = [], reportedCh
     inventoryComplete: true,
     criteria,
     checks,
-    unrecognizedReportedChecks: [...reported.entries()].filter(([key]) => !declaredCommands.has(key)).map(([, value]) => ({ directory: value.directory, command: value.command })),
+    unrecognizedReportedChecks: unrecognizedChecks(reported, declaredCommands),
+    unrecognizedExecutedChecks: unrecognizedChecks(executed, declaredCommands),
     documentationDrift: drift,
     reviewPrompts,
+    ...(audit ? { policyAudit: audit } : {}),
     limitation: "File presence and caller-reported check results do not establish acceptance behavior. Review code and execute relevant checks before claiming implementation complete."
   };
 }

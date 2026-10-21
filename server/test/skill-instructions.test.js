@@ -123,3 +123,22 @@ test("bootstrap skill opens an MCP Apps catalogue explorer instead of claiming n
   assert.match(skill, /packaged source Markdown in the MCP Apps UI/);
   assert.doesNotMatch(skill, /open files in a split tab/);
 });
+
+test("maintenance skill requires complete, evidence-backed policy audits without self-authorizing commands", () => {
+  const maintenance = fs.readFileSync(
+    path.join(HERE, "../../plugins/project-maintenance/skills/project-maintenance/SKILL.md"),
+    "utf8"
+  );
+  const review = fs.readFileSync(
+    path.join(HERE, "../../plugins/project-maintenance/skills/project-maintenance/references/implementation-review.md"),
+    "utf8"
+  );
+  assert.match(maintenance, /policyAudit/);
+  assert.match(maintenance, /Retrieve every page before reaching a conclusion/);
+  assert.match(maintenance, /executedChecks/);
+  assert.match(maintenance, /After explicit approval/);
+  assert.match(review, /Full evidence policy audit/);
+  assert.match(review, /nextPageToken/);
+  assert.match(review, /never echo configuration values/);
+  assert.match(review, /Do not substitute an overall score/);
+});

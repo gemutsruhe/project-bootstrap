@@ -64,7 +64,9 @@ Selected CI and Compose options are not automatically active files. CI is genera
 
 ### Reviewing an implementation
 
-When asked to evaluate an app against explicit acceptance criteria, the read-only `assess_implementation` tool indexes supplied evidence paths, declared checks, caller-reported results, documentation drift, and context-specific review prompts. It never runs checks or treats file presence as behavioral proof. The Skill then inspects relevant code and tests, distinguishes declared, reported, and actually executed checks, and marks unproven criteria as unverified. This assessment is separate from bootstrap and does not authorize product edits.
+When asked to evaluate an app against explicit acceptance criteria, the read-only `assess_implementation` tool indexes supplied evidence paths, declared checks, caller-reported results, agent-executed results, documentation drift, and context-specific review prompts. It never runs checks or treats file presence as behavioral proof. The Skill then inspects relevant code and tests, distinguishes declared, reported, and actually executed checks, and marks unproven criteria as unverified. This assessment is separate from bootstrap and does not authorize product edits.
+
+For a full evidence audit, callers provide policy entry documents through `policyAudit`. The tool follows only their direct local policy-document references, returns stable sentence/list-item IDs with source lines and heading context, and paginates results without silently omitting later items. The Skill retrieves every page before reporting an item-by-item verdict; a blocked collection or stale page token is not a coverage conclusion. Configuration evidence is limited to paths, keys, scopes, and safe state classifications—never raw values or environment variables. Verification commands remain a separate approval: only an authorized, actually run command may be supplied as `executedChecks`, while caller-reported results remain visible as caller-reported.
 
 ### Existing projects and Codex settings
 

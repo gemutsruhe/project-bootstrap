@@ -32,11 +32,15 @@ test("MCP lists read-only planning tools and the Catalog Explorer UI tool", asyn
 
 test("Project Maintenance exposes only read-only assessment tools", () => {
   assert.equal(configuredServerName(["node", "index.js", "--server-name", "project-maintenance"]), "project-maintenance");
-  assert.equal(configuredServerVersion(["node", "index.js", "--server-version", "0.1.0"]), "0.1.0");
+  assert.equal(configuredServerVersion(["node", "index.js", "--server-version", "0.2.0"]), "0.2.0");
   assert.deepEqual(
     exposedToolDefinitions("project-maintenance").map((tool) => tool.name),
     ["inspect_workspace", "assess_implementation"]
   );
+  const assessment = exposedToolDefinitions("project-maintenance").find((tool) => tool.name === "assess_implementation");
+  assert.equal(assessment.inputSchema.properties.policyAudit.properties.pageSize.maximum, 100);
+  assert.deepEqual(assessment.inputSchema.properties.policyAudit.properties.includeConfiguration.enum, ["safe-summary"]);
+  assert.equal(assessment.inputSchema.properties.executedChecks.items.properties.status.enum.includes("failed"), true);
 });
 
 test("MCP exposes the versioned workspace-guide policy catalogue without writes", async () => {
