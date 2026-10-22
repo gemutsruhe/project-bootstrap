@@ -9,7 +9,7 @@
         "--server-name",
         "project-maintenance",
         "--server-version",
-        "0.3.1"
+        "0.3.2"
       ],
       "cwd": "${PLUGIN_ROOT}",
       "env_vars": [

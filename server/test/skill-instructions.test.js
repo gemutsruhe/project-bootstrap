@@ -140,7 +140,17 @@ test("maintenance skill requires complete, evidence-backed policy audits without
   assert.match(maintenance, /Retrieve every page before reaching a conclusion/);
   assert.match(maintenance, /executedChecks/);
   assert.match(maintenance, /After explicit approval/);
+  assert.match(maintenance, /reconciliation baseline/);
+  assert.match(maintenance, /caller-reported, not current agent execution/);
+  assert.match(maintenance, /Every inherited failed check stays visible/);
+  assert.match(maintenance, /reconciliation matrix/);
+  assert.match(maintenance, /Do not restate a prior finding as current without fresh evidence/);
   assert.match(review, /Full evidence policy audit/);
+  assert.match(review, /Follow-up audit after a prior chat or repair attempt/);
+  assert.match(review, /Treat earlier-chat evidence as caller-reported/);
+  assert.match(review, /Do not downgrade a known failure to `not-run`/);
+  assert.match(review, /not `resolved` unless current behavior/);
+  assert.match(review, /release-readiness or full-audit conclusion is blocked/);
   assert.match(review, /scope: "auto"/);
   assert.match(review, /nextPageToken/);
   assert.match(review, /never echo configuration values/);

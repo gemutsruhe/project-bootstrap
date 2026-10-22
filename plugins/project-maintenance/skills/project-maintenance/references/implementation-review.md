@@ -10,6 +10,16 @@ Use this route only when the user asks to evaluate an existing implementation. T
 
 Do not run destructive commands, change production data, modify files, or claim acceptance from file presence. An assessment request alone is read-only; implement fixes only when the user separately asks for changes.
 
+## Follow-up audit after a prior chat or repair attempt
+
+Use this route whenever the request cites an earlier audit, a different Codex chat, a handoff, or attempted fixes. A follow-up is a new assessment of the current workspace, not a paraphrase of the earlier report.
+
+1. Capture a reconciliation baseline before reviewing: the previous report or thread reference, the prior workspace path when known, its findings, and every known command outcome. Re-inspect the current workspace before interpreting the earlier result. Treat earlier-chat evidence as caller-reported even when it was produced by an agent; only commands run during the current authorized turn belong in `executedChecks`.
+2. Pass known earlier check outcomes to `reportedChecks` with their original command, directory, result, and source reference. Do not downgrade a known failure to `not-run`, and do not let a prior pass certify a different directory, revision, or command.
+3. Recheck every inherited finding against the current code, tests, and policy items. Include a reconciliation matrix with: prior finding ID or short description; fresh path-and-line evidence; current check status and provenance; current severity; and verdict `reproduced`, `partially-reproduced`, `not-currently-observed`, or `unverified`.
+4. `not-currently-observed` means only that the new review did not establish the prior issue. It is not `resolved` unless current behavior and the relevant verification prove the repair. Preserve `unverified` for unavailable environments, external controls, incomplete policy pages, or checks that were not authorized and run.
+5. Do not present repeated static findings as a fresh complete result without the matrix. A release-readiness or full-audit conclusion is blocked while any inherited failed check, policy item, or material finding is not reconciled.
+
 ## Full evidence policy audit
 
 Use this route only when the user explicitly asks to inspect all policy or instruction statements. It supplements ordinary implementation criteria; it does not turn generic source files into policy documents.
@@ -18,4 +28,4 @@ Use this route only when the user explicitly asks to inspect all policy or instr
 2. Fetch every page through `policyAudit.nextPageToken`. Confirm that item IDs are unique and the collected count equals `totalItems` before evaluating coverage. Each item includes a stable ID, source path and lines, heading context, classification, and related exception IDs.
 3. Judge every `policy` and `exception` item separately as `compliant`, `partially-compliant`, `non-compliant`, `unverified`, or `not-applicable`. Read the relevant implementation, tests, and documents; cite exact paths and lines. Use `context` items only to explain scope and exceptions. A passing test proves only the behavior and input range it actually covers.
 4. Keep evidence provenance separate. `checks` declared by manifests or CI are not-run until executed. `reportedChecks` stay caller-reported. Add `executedChecks` only after the user has explicitly approved the exact command and the agent has run it; its supplied source must identify the execution transcript or log. An executed result supersedes a caller-reported result only for the same command and directory, while both remain visible.
-5. In the final matrix include item ID, verdict, source context, observed evidence, verification provenance, enforcement gap, impact, and minimum repair. Do not substitute an overall score for this matrix. Configuration evidence may name paths, key names, scope, and safe state classifications only; never echo configuration values, environment variables, credentials, or other sensitive content.
+5. In the final matrix include item ID, verdict, source context, observed evidence, verification provenance, enforcement gap, impact, and minimum repair. For a follow-up audit, join this to the reconciliation matrix rather than reporting two disconnected result lists. Do not substitute an overall score for this matrix. Configuration evidence may name paths, key names, scope, and safe state classifications only; never echo configuration values, environment variables, credentials, or other sensitive content.

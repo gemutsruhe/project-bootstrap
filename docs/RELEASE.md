@@ -1,5 +1,10 @@
 # Release process
 
+## Unreleased project-maintenance 0.3.2
+
+- Reconcile follow-up audits against prior chats and repair attempts, preserving prior check provenance and failures instead of repeating stale static findings.
+- Require a current-evidence matrix for inherited findings before a full-audit or release-readiness conclusion.
+
 ## Unreleased project-maintenance 0.3.1
 
 - Resolve bare inline-code policy document references relative to their containing document, while preserving existing workspace-relative paths such as `docs/rules.md`.
